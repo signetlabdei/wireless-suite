@@ -48,6 +48,7 @@ class AdLinkAdaptationV0(Env):
         # Compute the reward associated with the action taken
         # The reward could be the spectral efficiency if the packet is successfully transmitted
         # Whereas, it should be a negative value (e.g. -1) if the packet is NOT successfully transmitted
+        # Define specific reward function
         rwd = -1
         return rwd
 
@@ -55,6 +56,9 @@ class AdLinkAdaptationV0(Env):
         # Reset the state of the environment to an initial state
         self.t = 0
         # Pick up a random/deterministic new starting point in the SNR-vs-Time trace
+        # Random choice of a particular scenario
+        # Define the length of the SNR-vs-Time chunk to consider (number of steps in the episode)
+        # Try different size of this chunk
         return self._next_observation()
 
     def step(self, action):
