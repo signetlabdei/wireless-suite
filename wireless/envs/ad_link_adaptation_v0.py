@@ -1,3 +1,4 @@
+        self.t += 1  # Update time step
 """
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
