@@ -8,10 +8,7 @@ from gym import spaces, Env
 import pandas as pd
 from wireless.utils import misc
 
-# Load data from SNR-vs-Time trace
 # Load BER-vs-SNR curves
-
-MAX_STEPS = 200  # Max number of time steps for the environment
 
 
 class AdLinkAdaptationV0(Env):
@@ -31,6 +28,7 @@ class AdLinkAdaptationV0(Env):
         self.initial_timestep = 0  # Initial timestep of an observation
         self.current_timestep = 0  # Current timestep of an observation
         self.scenario = pd.DataFrame()  # DataFrame containing ['t', 'SINR']
+        self.observation_duration = 1  # Observation duration [s]
 
         self.seed()  # Seed the environment
         self.reset()  # Reset the environment
@@ -66,8 +64,7 @@ class AdLinkAdaptationV0(Env):
         self.scenario = misc.import_scenario(filepath)
 
         # Pick up a random new starting point in the SNR-vs-Time trace
-        max_init_timestep = len(self.scenario) - MAX_STEPS
-        self.initial_timestep = random.randint(0, max_init_timestep)
+        self.initial_timestep = self._get_initial_timestep()
         self.current_timestep = self.initial_timestep
 
         # Define the length of the SNR-vs-Time chunk to consider (number of steps in the episode)
@@ -84,8 +81,7 @@ class AdLinkAdaptationV0(Env):
         # Consider CBR or VBR traffic?
         reward = self._calculate_reward()
 
-        done = bool(self.current_timestep - self.initial_timestep - 1 >= MAX_STEPS)
-        assert((not done) and (self.current_timestep >= len(self.scenario)))
+        done = self._is_done()
 
         obs = self._next_observation()  # even if (done)?
 
@@ -100,3 +96,33 @@ class AdLinkAdaptationV0(Env):
         random.seed(seed)
         np.random.seed(seed)
         self._seed = seed
+
+    def _get_initial_timestep(self):
+        """
+        Pick up a random new starting point in the SNR-vs-Time trace
+        """
+        # Assuming the scenario is ordered in time
+        simulation_duration = self.scenario['t'].iloc[-1]
+        leftover_duration = simulation_duration - self.observation_duration
+        assert leftover_duration >= 0, f'The observation duration ({self.observation_duration} s) is longer than the ' \
+                                       f'scenario duration ({simulation_duration} s)'
+
+        max_init_timestep = np.count_nonzero(self.scenario['t'] <= leftover_duration)
+        initial_timestep = random.randrange(0, max_init_timestep)  # last excluded
+
+        return initial_timestep
+
+    def _is_done(self):
+        """
+        Check if the observation is over
+        """
+        initial_time = self.scenario['t'].iloc[self.initial_timestep]
+        current_time = self.scenario['t'].iloc[self.current_timestep]
+        elapsed_time = current_time - initial_time
+
+        done = elapsed_time >= self.observation_duration
+        if not done:
+            assert self.current_timestep <= len(self.scenario), f'Current timestep ({self.current_timestep}) over' \
+                                                                f' scenario length ({len(self.scenario)})'
+
+        return done
