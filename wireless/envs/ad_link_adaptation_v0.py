@@ -5,11 +5,13 @@ import random
 from math import floor, ceil
 import numpy as np
 from gym import spaces, Env
+import pandas as pd
+from wireless.utils import misc
 
 # Load data from SNR-vs-Time trace
 # Load BER-vs-SNR curves
 
-MAX_STEPS = 10  # Max number of time steps for the environment
+MAX_STEPS = 200  # Max number of time steps for the environment
 
 
 class AdLinkAdaptationV0(Env):
@@ -26,7 +28,9 @@ class AdLinkAdaptationV0(Env):
         # Variables of the observation vector
 
         # Internal variables
-        self.t = 0  # Time step
+        self.initial_timestep = 0  # Initial timestep of an observation
+        self.current_timestep = 0  # Current timestep of an observation
+        self.scenario = pd.DataFrame()  # DataFrame containing ['t', 'SINR']
 
         self.seed()  # Seed the environment
         self.reset()  # Reset the environment
@@ -37,6 +41,7 @@ class AdLinkAdaptationV0(Env):
         # An observation could be a mix between past SNR values and Success/Not Success (ACK/NACK)
         # The values of an observation should be scaled between 0-1
         obs = []
+        self.current_timestep += 1
         return obs
 
     def _take_action(self, action):
@@ -53,10 +58,18 @@ class AdLinkAdaptationV0(Env):
         return rwd
 
     def reset(self):
-        # Reset the state of the environment to an initial state
-        self.t = 0
-        # Pick up a random/deterministic new starting point in the SNR-vs-Time trace
+        """
+        Reset the state of the environment to an initial state
+        """
         # Random choice of a particular scenario
+        filepath = "../../scenarios/lroom.csv"
+        self.scenario = misc.import_scenario(filepath)
+
+        # Pick up a random new starting point in the SNR-vs-Time trace
+        max_init_timestep = len(self.scenario) - MAX_STEPS
+        self.initial_timestep = random.randint(0, max_init_timestep)
+        self.current_timestep = self.initial_timestep
+
         # Define the length of the SNR-vs-Time chunk to consider (number of steps in the episode)
         # Try different size of this chunk
         return self._next_observation()
@@ -69,11 +82,12 @@ class AdLinkAdaptationV0(Env):
         # TBD: How to generate a packet? What's our notion of packet?
         # Consider full buffer transmission?
         # Consider CBR or VBR traffic?
-
-        self.t += 1  # Update time step
         reward = self._calculate_reward()
-        done = bool(self.t >= MAX_STEPS)
-        obs = self._next_observation()
+
+        done = bool(self.current_timestep - self.initial_timestep - 1 >= MAX_STEPS)
+        assert((not done) and (self.current_timestep >= len(self.scenario)))
+
+        obs = self._next_observation()  # even if (done)?
 
         return obs, reward, done, {}
 
