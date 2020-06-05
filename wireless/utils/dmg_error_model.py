@@ -16,10 +16,10 @@ def is_valid(ber):
 class DmgErrorModel:
     """Dmg Error Model class"""
 
-    def __init__(self, path, n_mcs=13):
+    def __init__(self, path, n_mcs):
         self.path = os.path.abspath(path)  # Absolute path to the file with BER-vs-SNR curves
-        print("error_curve_path=", self.path)
-        self.n_mcs = n_mcs  # By default load curves for DMG Control and SC MCSs
+        print("error_model_abs_path=", self.path)
+        self.n_mcs = n_mcs  # The number of MCSs to load for the error model
         self.bersnr_curves = [None] * self.n_mcs
         self._load_bersnr_curves()
 
@@ -45,7 +45,7 @@ class DmgErrorModel:
         file.close()
 
     def get_bit_error_rate(self, snr, mcs):
-        assert mcs in range(self.n_mcs), f"{mcs} is not a valid MCS. Max MCS={self.n_mcs}"
+        assert mcs in range(self.n_mcs), f"{mcs} is not a valid MCS. Max MCS={self.n_mcs-1}"
         ber = self.bersnr_curves[mcs](snr)
         assert is_valid(ber), f"{ber} is not a probability value"
         return ber

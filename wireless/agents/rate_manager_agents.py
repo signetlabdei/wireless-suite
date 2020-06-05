@@ -11,5 +11,5 @@ class ConstantRateAgent:
     def __init__(self, mcs):
         self.mcs = mcs
 
-    def act(self, state, reward, done):
+    def act(self, state):
         return self.mcs
