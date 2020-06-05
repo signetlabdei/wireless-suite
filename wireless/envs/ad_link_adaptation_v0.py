@@ -143,6 +143,12 @@ class AdLinkAdaptationV0(Env):
 
         return self._get_observation()
 
+        # TEMPORARILY consider the entire trace
+        self.initial_timestep = 0
+        self.current_timestep = 0
+
+        return self._get_observation()
+
     def step(self, action):
         """
         Execute one time step within the environment
