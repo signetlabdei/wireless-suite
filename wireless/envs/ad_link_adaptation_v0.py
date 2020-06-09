@@ -2,7 +2,6 @@
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
 import random
-from math import floor, ceil
 import numpy as np
 from gym import spaces, Env
 import pandas as pd
@@ -14,25 +13,31 @@ class AdLinkAdaptationV0(Env):
     """An OpenAIGym-based environment to simulate link adaptation in IEEE 802.11ad"""
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, scenarios_list, obs_duration, n_stas=1, n_mcs=13, dmg_path="../../dmg_files/"):
+    def __init__(self, scenarios_list, obs_duration=1, snr_history=5, net_timestep=0.005,
+                 n_mcs=13, dmg_path="../../dmg_files/"):
         super().__init__()
         self._seed = None
         self.scenarios_list = scenarios_list  # List with the scenarios to be randomly picked up in the env
-        self.n_stas = n_stas  # Number of STAs
         self.n_mcs = n_mcs  # By default load curves for DMG Control and SC MCSs
+        self.snr_history = snr_history  # The number of SNR values in the past to consider in the state
         self.dmg_path = dmg_path  # Path to the folder containing DMG files
 
         # Define: Observation space and Action space
-        self.observation_space = spaces.Box(low=-50, high=80, shape=(1, 0), dtype=np.float32)
-        self.action_space = spaces.Discrete(self.n_mcs)
+        snr_space = spaces.Box(low=-50, high=80, shape=(self.snr_history,), dtype=np.float32)
+        packet_space = spaces.Box(low=0, high=500, shape=(2,), dtype=np.uint16)
+        mcs_space = spaces.Discrete(self.n_mcs)
+        self.observation_space = spaces.Tuple((snr_space, packet_space, mcs_space))
+        self.action_space = mcs_space
 
         # Internal variables
-        self.network_timestep = 0.005  # The current network timestep is 5 ms
-        self.msdu_size = 7935*8  # Max MSDU aggregation size in bits
+        self.network_timestep = net_timestep  # The network timestep [s] (The default value is 5 ms)
+        self.amsdu_size = 7935 * 8  # Max MSDU aggregation size in bits (7935 bytes is the max A-MSDU size)
+        self.mcs = None  # The current MCS to be used
         self.tx_pkts_list = None  # List containing the size of the packets to tx
         self.rnd_list = None  # List of random values between [0,1)
         self.psr_list = None  # List of packet success rates
         self.succ_list = None  # List with the status for each txed packet
+        self.scenario_duration = None  # The duration of the current scenario
         self.initial_timestep = None  # Initial timestep of an observation
         self.current_timestep = None  # Current timestep of an observation
         self.scenario = pd.DataFrame()  # DataFrame containing ['t', 'SINR']
@@ -49,29 +54,29 @@ class AdLinkAdaptationV0(Env):
         # An observation could be a mix between past SNR values and Success/Not Success (ACK/NACK)
         # The values of an observation should be scaled between 0-1
 
-        # Return the current SNR value
-        obs = self.scenario['SINR'].iloc[self.current_timestep]
-        self.current_timestep += 1
-        return obs
+        # Return the following Tuple: (list of past SNR values, [# succ pkts, # fail pkts], current MCS)
+        snr_list = self.scenario['SINR'].iloc[self.current_timestep - self.snr_history:self.current_timestep]
+        n_succ_pkts = np.count_nonzero(self.succ_list == True)
+        return np.array(snr_list), [n_succ_pkts, len(self.succ_list) - n_succ_pkts], self.mcs
 
     def _take_action(self, action):
         # Execute action
         assert self.action_space.contains(action), f"{action} ({type(action)}) invalid"
-
+        self.mcs = action
         # Create packets based on the current MCS (i.e. the action taken)
         current_snr = self.scenario['SINR'].iloc[self.current_timestep]
-        mcs_rate = misc.get_mcs_data_rate(action)
-        assert mcs_rate is not None, f"{action} is not a valid MCS or the format is wrong"
+        mcs_rate = misc.get_mcs_data_rate(self.mcs)
+        assert mcs_rate is not None, f"{self.mcs} is not a valid MCS or the format is wrong"
         data_rate = int(mcs_rate * self.network_timestep)
-        n_packets = data_rate // self.msdu_size
-        self.tx_pkts_list = [self.msdu_size] * n_packets
-        # Compute the success rate of the current packet based on: current SNR, selected MCS, BER-SNR curves.
-        self.psr_list = [self.error_model.get_packet_success_rate(current_snr, action, self.msdu_size)] * n_packets
-        last_pkt = data_rate % self.msdu_size
+        n_packets = data_rate // self.amsdu_size
+        self.tx_pkts_list = [self.amsdu_size] * n_packets
+        # Compute the success rate of each packet based on: current SNR, selected MCS, BER-SNR curves.
+        self.psr_list = [self.error_model.get_packet_success_rate(current_snr, self.mcs, self.amsdu_size)] * n_packets
+        last_pkt = data_rate % self.amsdu_size
         if last_pkt != 0:
             self.tx_pkts_list.append(last_pkt)
             self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, action, last_pkt))
-        self.rnd_list = np.random.rand(len(self.psr_list),)
+        self.rnd_list = np.random.rand(len(self.psr_list), )
         self.succ_list = self.rnd_list <= self.psr_list
 
     def _calculate_reward(self):
@@ -88,6 +93,10 @@ class AdLinkAdaptationV0(Env):
         """
         Reset the state of the environment to an initial state
         """
+        # Reset internal state variables
+        self.succ_list = []
+        self.mcs = None
+
         # Random choice of a particular scenario
         scenario = random.choice(self.scenarios_list)
         filepath = self.dmg_path + "/qd_scenarios/" + scenario
@@ -96,12 +105,6 @@ class AdLinkAdaptationV0(Env):
         # Pick up a random new starting point in the SNR-vs-Time trace
         self.initial_timestep = self._get_initial_timestep()
         self.current_timestep = self.initial_timestep
-        # Define the length of the SNR-vs-Time chunk to consider (number of steps in the episode)
-        # Try different size of this chunk
-
-        # TEMPORARILY consider the entire trace
-        self.initial_timestep = 0
-        self.current_timestep = 0
 
         return self._get_observation()
 
@@ -109,13 +112,12 @@ class AdLinkAdaptationV0(Env):
         """
         Execute one time step within the environment
         """
-        self._take_action(action)
 
-        # TBD: How to generate a packet? What's our notion of packet?
-        # Consider full buffer transmission?
-        # Consider CBR or VBR traffic?
+        self._take_action(action)
         reward = self._calculate_reward()
         done = self._is_done()
+
+        self.current_timestep += 1  # Need to increment the timestep before getting the observation
         obs = self._get_observation()  # even if (done)?
 
         return obs, reward, done, {"tx_pkts_list": self.tx_pkts_list, "rnd_list": self.rnd_list,
@@ -136,13 +138,16 @@ class AdLinkAdaptationV0(Env):
         Pick up a random new starting point in the SNR-vs-Time trace
         """
         # Assuming the scenario is ordered in time
-        simulation_duration = self.scenario['t'].iloc[-1]
-        leftover_duration = simulation_duration - self.observation_duration
+        self.scenario_duration = self.scenario['t'].iloc[-1]
+        leftover_duration = self.scenario_duration - self.observation_duration
         assert leftover_duration >= 0, f'The observation duration ({self.observation_duration} s) is longer than the ' \
-                                       f'scenario duration ({simulation_duration} s)'
+                                       f'scenario duration ({self.scenario_duration} s)'
 
-        max_init_timestep = np.count_nonzero(self.scenario['t'] <= leftover_duration)
-        initial_timestep = random.randrange(0, max_init_timestep)  # last excluded
+        max_n_init_timestep = np.count_nonzero(self.scenario['t'] <= leftover_duration)
+        if self.snr_history > max_n_init_timestep:
+            initial_timestep = self.snr_history
+        else:
+            initial_timestep = random.randrange(self.snr_history, max_n_init_timestep)  # last excluded
 
         return initial_timestep
 
@@ -153,8 +158,7 @@ class AdLinkAdaptationV0(Env):
         initial_time = self.scenario['t'].iloc[self.initial_timestep]
         current_time = self.scenario['t'].iloc[self.current_timestep]
         elapsed_time = current_time - initial_time
-
-        done = elapsed_time >= self.observation_duration
+        done = elapsed_time >= self.observation_duration or current_time == self.scenario_duration
         if not done:
             assert self.current_timestep <= len(self.scenario), f'Current timestep ({self.current_timestep}) over' \
                                                                 f' scenario length ({len(self.scenario)})'
