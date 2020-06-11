@@ -56,8 +56,8 @@ def main():
         env.close()
         if len(thr_values) != 0:
             thr_t.append(np.mean(thr_values))
-        avg_data_rate = np.sum(tot_bits_t) / (OBS_DURATION - START_TIME) / 1e6
-        avg_thr = np.sum(reward_t) / (OBS_DURATION - START_TIME) / 1e6
+        avg_data_rate = np.sum(tot_bits_t, dtype=np.int64) / (OBS_DURATION - START_TIME) / 1e6
+        avg_thr = np.sum(reward_t, dtype=np.int64) / (OBS_DURATION - START_TIME) / 1e6
         print(f"Avg data rate [Mbps]: {avg_data_rate}")
         print(f"Avg throughput [Mbps]: {avg_thr}")
         print(f"Average reward: {np.mean(reward_t)}")
