@@ -8,7 +8,7 @@ from wireless.utils.misc import get_mcs_data_rate
 from wireless.agents.rate_manager_agents import ConstantRateAgent
 
 MCS_MODE = 12  # MCS for the Constant Rate Agent
-SCENARIOS_LIST = ["lroom.csv"]  # List of scenarios for the environment
+SCENARIOS_LIST = None  # List of scenarios for the environment
 SNR_HISTORY = 5  # The number of past SNR values to consider for the state
 NET_TIMESTEP = 0.005  # The real network timestep [s]
 OBS_DURATION = 19.15  # Observation duration [s]; 19.15 s is the duration of LRoom scenario

@@ -1,6 +1,7 @@
 """
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
+import os
 import random
 import numpy as np
 from gym import spaces, Env
@@ -13,14 +14,32 @@ class AdLinkAdaptationV0(Env):
     """An OpenAIGym-based environment to simulate link adaptation in IEEE 802.11ad"""
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, scenarios_list, obs_duration=1, snr_history=5, net_timestep=0.005,
+    def __init__(self, net_timestep, scenarios_list=None, obs_duration=1, snr_history=5,
                  n_mcs=13, dmg_path="../../dmg_files/"):
+        """Initialize the IEEE 802.11ad link adaptation environment (v0).
+
+        Parameters
+        ----------
+        net_timestep: Network timestep in [s].
+        scenarios_list: List with the scenarios' filenames from dmg_path to be randomly picked up in the env. If None,
+         import all files in the folder. Default: None.
+        obs_duration: Duration in [s] of a single observation. Default: 1.
+        snr_history: The number of SNR values in the past to consider in the state. Default: 5.
+        n_mcs: Number of possible MCSs supported, starting from 0. Default: 13.
+        dmg_path: Path to the folder containing DMG files. Default: "../../dmg_files/".
+        """
         super().__init__()
+
+        self.dmg_path = dmg_path
+        self.qd_scenarios_path = os.path.join(self.dmg_path, "qd_scenarios")
+
+        if scenarios_list is None:
+            scenarios_list = [file for file in os.listdir(self.qd_scenarios_path) if file.endswith(".csv")]
+        self.scenarios_list = scenarios_list
+
         self._seed = None
-        self.scenarios_list = scenarios_list  # List with the scenarios to be randomly picked up in the env
-        self.n_mcs = n_mcs  # By default load curves for DMG Control and SC MCSs
-        self.snr_history = snr_history  # The number of SNR values in the past to consider in the state
-        self.dmg_path = dmg_path  # Path to the folder containing DMG files
+        self.n_mcs = n_mcs
+        self.snr_history = snr_history
 
         # Define: Observation space and Action space
         snr_space = spaces.Box(low=-50, high=80, shape=(self.snr_history,), dtype=np.float32)
@@ -30,7 +49,7 @@ class AdLinkAdaptationV0(Env):
         self.action_space = mcs_space
 
         # Internal variables
-        self.network_timestep = net_timestep  # The network timestep [s] (The default value is 5 ms)
+        self.network_timestep = net_timestep
         self.amsdu_size = 7935 * 8  # Max MSDU aggregation size in bits (7935 bytes is the max A-MSDU size)
         self.mcs = None  # The current MCS to be used
         self.tx_pkts_list = None  # List containing the size of the packets to tx
@@ -40,8 +59,8 @@ class AdLinkAdaptationV0(Env):
         self.scenario_duration = None  # The duration of the current scenario
         self.initial_timestep = None  # Initial timestep of an observation
         self.current_timestep = None  # Current timestep of an observation
-        self.scenario = pd.DataFrame()  # DataFrame containing ['t', 'SINR']
-        self.observation_duration = obs_duration  # Observation duration [s]
+        self.scenario = pd.DataFrame()  # DataFrame containing ['t', 'SNR']
+        self.observation_duration = obs_duration
         self.error_model = DmgErrorModel(self.dmg_path + "/error_model/LookupTable_1458.txt",
                                          self.n_mcs)  # Create DMG error model
 
@@ -55,7 +74,7 @@ class AdLinkAdaptationV0(Env):
         # The values of an observation should be scaled between 0-1
 
         # Return the following Tuple: (list of past SNR values, [# succ pkts, # fail pkts], current MCS)
-        snr_list = self.scenario['SINR'].iloc[self.current_timestep - self.snr_history:self.current_timestep]
+        snr_list = self.scenario['SNR'].iloc[self.current_timestep - self.snr_history:self.current_timestep]
         n_succ_pkts = np.count_nonzero(self.succ_list == True)
         return np.array(snr_list), [n_succ_pkts, len(self.succ_list) - n_succ_pkts], self.mcs
 
@@ -64,7 +83,7 @@ class AdLinkAdaptationV0(Env):
         assert self.action_space.contains(action), f"{action} ({type(action)}) invalid"
         self.mcs = action
         # Create packets based on the current MCS (i.e. the action taken)
-        current_snr = self.scenario['SINR'].iloc[self.current_timestep]
+        current_snr = self.scenario['SNR'].iloc[self.current_timestep]
         mcs_rate = misc.get_mcs_data_rate(self.mcs)
         assert mcs_rate is not None, f"{self.mcs} is not a valid MCS or the format is wrong"
         data_rate = int(mcs_rate * self.network_timestep)
@@ -99,7 +118,7 @@ class AdLinkAdaptationV0(Env):
 
         # Random choice of a particular scenario
         scenario = random.choice(self.scenarios_list)
-        filepath = self.dmg_path + "/qd_scenarios/" + scenario
+        filepath = os.path.join(self.qd_scenarios_path, scenario)
         self.scenario = misc.import_scenario(filepath)
 
         # Pick up a random new starting point in the SNR-vs-Time trace
