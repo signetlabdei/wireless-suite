@@ -45,11 +45,13 @@ class AdLinkAdaptationV0(Env):
         snr_space = spaces.Box(low=-50, high=80, shape=(self.snr_history,), dtype=np.float32)
         packet_space = spaces.Box(low=0, high=500, shape=(2,), dtype=np.uint16)
         mcs_space = spaces.Discrete(self.n_mcs)
-        self.observation_space = spaces.Tuple((snr_space, packet_space, mcs_space))
+        future_snr_space = spaces.Box(low=-50, high=80, shape=(1,), dtype=np.float32)
+        self.observation_space = spaces.Tuple((snr_space, packet_space, mcs_space, future_snr_space))
         self.action_space = mcs_space
 
         # Internal variables
-        self.network_timestep = net_timestep
+        self.done = None  # Flag to signal the end of the current episode
+        self.network_timestep = net_timestep # The network timestep of the environment
         self.amsdu_size = 7935 * 8  # Max MSDU aggregation size in bits (7935 bytes is the max A-MSDU size)
         self.mcs = None  # The current MCS to be used
         self.tx_pkts_list = None  # List containing the size of the packets to tx
@@ -73,10 +75,15 @@ class AdLinkAdaptationV0(Env):
         # An observation could be a mix between past SNR values and Success/Not Success (ACK/NACK)
         # The values of an observation should be scaled between 0-1
 
-        # Return the following Tuple: (list of past SNR values, [# succ pkts, # fail pkts], current MCS)
+        # Return the following Tuple: (list of past SNR values, [# succ pkts, # fail pkts], current MCS, future SNR)
         snr_list = self.scenario['SNR'].iloc[self.current_timestep - self.snr_history:self.current_timestep]
+        # Get one-step-ahead SNR
+        future_snr = None
+        if not self.done:
+            future_snr = self.scenario['SNR'].iloc[self.current_timestep]
+
         n_succ_pkts = np.count_nonzero(self.succ_list == True)
-        return np.array(snr_list), [n_succ_pkts, len(self.succ_list) - n_succ_pkts], self.mcs
+        return np.array(snr_list), [n_succ_pkts, len(self.succ_list) - n_succ_pkts], self.mcs, future_snr
 
     def _take_action(self, action):
         # Execute action
@@ -113,6 +120,7 @@ class AdLinkAdaptationV0(Env):
         Reset the state of the environment to an initial state
         """
         # Reset internal state variables
+        self.done = False
         self.succ_list = []
         self.mcs = None
 
@@ -134,13 +142,13 @@ class AdLinkAdaptationV0(Env):
 
         self._take_action(action)
         reward = self._calculate_reward()
-        done = self._is_done()
+        self.done = self._is_done()
 
         self.current_timestep += 1  # Need to increment the timestep before getting the observation
         obs = self._get_observation()  # even if (done)?
 
-        return obs, reward, done, {"tx_pkts_list": self.tx_pkts_list, "rnd_list": self.rnd_list,
-                                   "psr_list": self.psr_list, "succ_list": self.succ_list}
+        return obs, reward, self.done, {"tx_pkts_list": self.tx_pkts_list, "rnd_list": self.rnd_list,
+                                        "psr_list": self.psr_list, "succ_list": self.succ_list}
 
     def render(self, mode='human', close=False):
         # Render the environment to the screen
@@ -163,7 +171,7 @@ class AdLinkAdaptationV0(Env):
                                        f'scenario duration ({self.scenario_duration} s)'
 
         max_n_init_timestep = np.count_nonzero(self.scenario['t'] <= leftover_duration)
-        if self.snr_history > max_n_init_timestep:
+        if self.snr_history >= max_n_init_timestep:
             initial_timestep = self.snr_history
         else:
             initial_timestep = random.randrange(self.snr_history, max_n_init_timestep)  # last excluded
