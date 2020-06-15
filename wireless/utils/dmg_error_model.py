@@ -44,7 +44,7 @@ class DmgErrorModel:
                                                bounds_error=False, fill_value=(ber_max, ber_min))
         file.close()
 
-    def get_bit_error_rate(self, snr, mcs):
+    def get_ber(self, snr, mcs):
         assert mcs in range(self.n_mcs), f"{mcs} is not a valid MCS. Max MCS={self.n_mcs-1}"
         ber = self.bersnr_curves[mcs](snr)
         assert is_valid(ber), f"{ber} is not a probability value"
@@ -52,4 +52,4 @@ class DmgErrorModel:
 
     def get_packet_success_rate(self, snr, mcs, n_bits=0):
         assert n_bits != 0, "The number of bits must be greater than zero"
-        return pow(1 - self.get_bit_error_rate(snr, mcs), n_bits)
+        return pow(1 - self.get_ber(snr, mcs), n_bits)

@@ -66,6 +66,8 @@ def main():
 
     thr_mcs = np.array(thr_t_mcs)
     mcs_max = np.argmax(thr_mcs, axis=0)
+    thr_max = np.amax(thr_mcs, axis=0)
+    print(f"Avg Optimal throughput [Mbps]: {np.mean(thr_max)}")
 
     # Plot results
     plt.figure(1)
