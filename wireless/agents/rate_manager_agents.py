@@ -17,7 +17,7 @@ class ConstantRateAgent:
         return self.mcs
 
 
-class OptimalRateAgent:
+class TargetBerAgent:
     """
     This agent computes the MCS based on the future SNR, hence its optimality
     (the future SNR is the SNR at one timestep ahead with respect to the current timestep)

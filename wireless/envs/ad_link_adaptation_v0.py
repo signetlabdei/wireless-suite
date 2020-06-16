@@ -101,7 +101,7 @@ class AdLinkAdaptationV0(Env):
         last_pkt = data_rate % self.amsdu_size
         if last_pkt != 0:
             self.tx_pkts_list.append(last_pkt)
-            self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, action, last_pkt))
+            self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, self.mcs, last_pkt))
         self.rnd_list = np.random.rand(len(self.psr_list), )
         self.succ_list = self.rnd_list <= self.psr_list
 

@@ -5,7 +5,7 @@ import gym
 import numpy as np
 import matplotlib.pyplot as plt
 from wireless.utils.misc import get_mcs_data_rate
-from wireless.agents.rate_manager_agents import OptimalRateAgent
+from wireless.agents.rate_manager_agents import TargetBerAgent
 
 TARGET_BER = 1e-6
 SCENARIOS_LIST = ["Journal1Lroom_1.csv"]  # List of scenarios for the environment
@@ -23,7 +23,7 @@ def main():
     env = gym.make("AdLinkAdaptation-v0", scenarios_list=SCENARIOS_LIST, obs_duration=OBS_DURATION,
                    snr_history=SNR_HISTORY, net_timestep=NET_TIMESTEP)
 
-    agent = OptimalRateAgent(env.action_space, env.error_model, target_ber=TARGET_BER)
+    agent = TargetBerAgent(env.action_space, env.error_model, target_ber=TARGET_BER)
     reward_t = []
     tot_bits_t = []
     done = False
@@ -35,7 +35,7 @@ def main():
     thr_step = THR_STEP  # timestep for thr calculation
 
     while not done:
-        action = agent.act(state[3])
+        action = agent.act(state[0][-1])
         new_state, reward, done, debug = env.step(action)
 
         tot_bits_generated = sum(debug["tx_pkts_list"])
