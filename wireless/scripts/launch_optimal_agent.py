@@ -35,7 +35,7 @@ def main():
     thr_step = THR_STEP  # timestep for thr calculation
 
     while not done:
-        action = agent.act(state[0][-1])
+        action = agent.act(state[3])
         new_state, reward, done, debug = env.step(action)
 
         tot_bits_generated = sum(debug["tx_pkts_list"])

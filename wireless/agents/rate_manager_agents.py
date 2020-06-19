@@ -53,14 +53,14 @@ class OptimalAgent:
         self.pkt_size = pkt_size
 
     def act(self, snr):
-        rx_bits = []
+        rx_bits = np.zeros((self.action_space.n,))
         for action_idx in range(self.action_space.n):
             n_packets, last_pkt, pkt_size_list = misc.get_tx_pkt_size_list(action_idx, self.timestep, self.pkt_size)
             pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, self.pkt_size)
             last_pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, last_pkt)
 
             avg_rx_bits = self.pkt_size * pkt_psr * n_packets + last_pkt * last_pkt_psr
-            rx_bits.append(avg_rx_bits)
+            rx_bits[action_idx] = avg_rx_bits
 
-        best_action = np.argmax(rx_bits)
-        return best_action
+        selected_mcs = np.argmax(rx_bits)
+        return selected_mcs
