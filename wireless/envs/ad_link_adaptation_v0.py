@@ -91,17 +91,13 @@ class AdLinkAdaptationV0(Env):
         self.mcs = action
         # Create packets based on the current MCS (i.e. the action taken)
         current_snr = self.scenario['SNR'].iloc[self.current_timestep]
-        mcs_rate = misc.get_mcs_data_rate(self.mcs)
-        assert mcs_rate is not None, f"{self.mcs} is not a valid MCS or the format is wrong"
-        data_rate = int(mcs_rate * self.network_timestep)
-        n_packets = data_rate // self.amsdu_size
-        self.tx_pkts_list = [self.amsdu_size] * n_packets
+        n_packets, last_pkt, self.tx_pkts_list = misc.get_tx_pkt_size_list(self.mcs,
+                                                                           self.network_timestep,
+                                                                           self.amsdu_size)
         # Compute the success rate of each packet based on: current SNR, selected MCS, BER-SNR curves.
         self.psr_list = [self.error_model.get_packet_success_rate(current_snr, self.mcs, self.amsdu_size)] * n_packets
-        last_pkt = data_rate % self.amsdu_size
-        if last_pkt != 0:
-            self.tx_pkts_list.append(last_pkt)
-            self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, self.mcs, last_pkt))
+        self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, self.mcs, last_pkt))
+
         self.rnd_list = np.random.rand(len(self.psr_list), )
         self.succ_list = self.rnd_list <= self.psr_list
 

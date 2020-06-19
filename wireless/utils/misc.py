@@ -41,3 +41,18 @@ def get_mcs_data_rate(mcs_idx):
         12: 4620*1e6,
     }
     return switcher.get(mcs_idx, None)
+
+
+def get_tx_pkt_size_list(mcs_idx, time, packet_size):
+    mcs_rate = get_mcs_data_rate(mcs_idx)
+    assert mcs_rate is not None, f"{mcs_idx} is not a valid MCS or the format is wrong"
+
+    data_rate = int(mcs_rate * time)
+    n_packets = data_rate // packet_size
+    tx_pkts_list = [packet_size] * n_packets
+
+    last_pkt = data_rate % packet_size
+    if last_pkt != 0:
+        tx_pkts_list.append(last_pkt)
+
+    return n_packets, last_pkt, tx_pkts_list

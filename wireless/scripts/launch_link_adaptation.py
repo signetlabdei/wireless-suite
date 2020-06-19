@@ -71,7 +71,7 @@ def main():
 
     # Plot results
     plt.figure(1)
-    plt.plot(TIME, mcs_max, marker="x", linewidth=0.2, markersize=7.0, label="MCS index")
+    plt.plot(mcs_max, marker="x", linewidth=0.2, markersize=7.0, label="MCS index")
     plt.title("Best MCS for each time value in the simulation", fontsize=18)
     plt.ylabel("MCS index", fontsize=18)
     plt.xlabel("Time [s]", fontsize=18)

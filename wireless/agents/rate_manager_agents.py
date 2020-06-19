@@ -2,6 +2,7 @@
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
 import numpy as np
+from wireless.utils import misc
 
 
 class ConstantRateAgent:
@@ -19,8 +20,7 @@ class ConstantRateAgent:
 
 class TargetBerAgent:
     """
-    This agent computes the MCS based on the future SNR, hence its optimality
-    (the future SNR is the SNR at one timestep ahead with respect to the current timestep)
+    This agent computes the MCS based on a target BER
     """
 
     def __init__(self, action_space, error_model, target_ber=1e-6):
@@ -37,3 +37,30 @@ class TargetBerAgent:
         if target_mcs_list.size != 0:
             selected_mcs = np.amax(target_mcs_list)
         return selected_mcs
+
+
+class OptimalAgent:
+    """
+    This agent computes the best MCS based on the future SNR, i.e., the SNR at one timestep ahead with respect to the
+    current timestep.
+    The MCS is chosen to be the one that maximizes the total average number of received packets, hence its optimality.
+    """
+
+    def __init__(self, action_space, error_model, timestep, pkt_size):
+        self.action_space = action_space
+        self.error_model = error_model
+        self.timestep = timestep
+        self.pkt_size = pkt_size
+
+    def act(self, snr):
+        rx_bits = []
+        for action_idx in range(self.action_space.n):
+            n_packets, last_pkt, pkt_size_list = misc.get_tx_pkt_size_list(action_idx, self.timestep, self.pkt_size)
+            pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, self.pkt_size)
+            last_pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, last_pkt)
+
+            avg_rx_bits = self.pkt_size * pkt_psr * n_packets + last_pkt * last_pkt_psr
+            rx_bits.append(avg_rx_bits)
+
+        best_action = np.argmax(rx_bits)
+        return best_action
