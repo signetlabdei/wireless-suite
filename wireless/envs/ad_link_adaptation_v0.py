@@ -14,7 +14,7 @@ class AdLinkAdaptationV0(Env):
     """An OpenAIGym-based environment to simulate link adaptation in IEEE 802.11ad"""
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, net_timestep, scenarios_list=None, obs_duration=1, snr_history=5,
+    def __init__(self, net_timestep, campaign, scenarios_list=None, obs_duration=1, snr_history=5,
                  n_mcs=13, dmg_path="../../dmg_files/"):
         """Initialize the IEEE 802.11ad link adaptation environment (v0).
 
@@ -31,7 +31,8 @@ class AdLinkAdaptationV0(Env):
         super().__init__()
 
         self.dmg_path = dmg_path
-        self.qd_scenarios_path = os.path.join(self.dmg_path, "qd_scenarios")
+        self.campaign = campaign
+        self.qd_scenarios_path = os.path.join(self.dmg_path, self.campaign, "qd_scenarios")
 
         if scenarios_list is None:
             scenarios_list = [file for file in os.listdir(self.qd_scenarios_path) if file.endswith(".csv")]

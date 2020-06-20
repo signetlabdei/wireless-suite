@@ -28,6 +28,7 @@ with open('../../config/config_sacred.json') as f:
 
 @ex.config
 def cfg():
+    campaign = "scenarios_v1"
     scenario_list = ["Journal1Lroom_1.csv"]  # List of scenarios for the environment
     snr_history = 1  # The number of past SNR values to consider for the state
     net_timestep = 0.005  # The real network timestep [s]
@@ -35,9 +36,9 @@ def cfg():
     n_episodes = 1  # The number of episodes to run
 
 @ex.automain
-def main(scenario_list, snr_history, obs_duration, net_timestep, _run):
+def main(campaign, scenario_list, snr_history, obs_duration, net_timestep, _run):
 
-    env = gym.make("AdLinkAdaptation-v0", scenarios_list=scenario_list, obs_duration=obs_duration,
+    env = gym.make("AdLinkAdaptation-v0", campaign=campaign, scenarios_list=scenario_list, obs_duration=obs_duration,
                    snr_history=snr_history, net_timestep=net_timestep)
 
     agent = OptimalAgent(env.action_space, env.error_model, env.network_timestep, env.amsdu_size)

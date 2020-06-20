@@ -8,6 +8,7 @@ from wireless.utils.misc import get_mcs_data_rate
 from wireless.agents.rate_manager_agents import ConstantRateAgent
 
 MCS_MODE = 12  # MCS for the Constant Rate Agent
+CAMPAIGN = "scenarios_v1"
 SCENARIOS_LIST = ["Journal1Lroom_1.csv"]  # List of scenarios for the environment
 SNR_HISTORY = 5  # The number of past SNR values to consider for the state
 NET_TIMESTEP = 0.005  # The real network timestep [s]
@@ -21,7 +22,7 @@ TIME = np.arange(START_TIME, OBS_DURATION, NET_TIMESTEP * THR_STEP)
 def main():
 
     thr_t_mcs = [None] * len(MCS_LIST)
-    env = gym.make("AdLinkAdaptation-v0", scenarios_list=SCENARIOS_LIST, obs_duration=OBS_DURATION,
+    env = gym.make("AdLinkAdaptation-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST, obs_duration=OBS_DURATION,
                    snr_history=SNR_HISTORY, net_timestep=NET_TIMESTEP)
     for mcs in MCS_LIST:
 
