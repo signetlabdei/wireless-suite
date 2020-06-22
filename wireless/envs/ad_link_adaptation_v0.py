@@ -21,6 +21,7 @@ class AdLinkAdaptationV0(Env):
         Parameters
         ----------
         net_timestep: Network timestep in [s].
+        campaign: Folder containing a set of scenario with specific beamforming and antenna configurations.
         scenarios_list: List with the scenarios' filenames from dmg_path to be randomly picked up in the env. If None,
          import all files in the folder. Default: None.
         obs_duration: Duration in [s] of a single observation. Default: 1.
@@ -32,7 +33,7 @@ class AdLinkAdaptationV0(Env):
 
         self.dmg_path = dmg_path
         self.campaign = campaign
-        self.qd_scenarios_path = os.path.join(self.dmg_path, self.campaign, "qd_scenarios")
+        self.qd_scenarios_path = os.path.join(self.dmg_path, "qd_scenarios",  self.campaign)
 
         if scenarios_list is None:
             scenarios_list = [file for file in os.listdir(self.qd_scenarios_path) if file.endswith(".csv")]
@@ -52,7 +53,7 @@ class AdLinkAdaptationV0(Env):
 
         # Internal variables
         self.done = None  # Flag to signal the end of the current episode
-        self.network_timestep = net_timestep # The network timestep of the environment
+        self.network_timestep = net_timestep  # The network timestep of the environment
         self.amsdu_size = 7935 * 8  # Max MSDU aggregation size in bits (7935 bytes is the max A-MSDU size)
         self.mcs = None  # The current MCS to be used
         self.tx_pkts_list = None  # List containing the size of the packets to tx
@@ -97,7 +98,8 @@ class AdLinkAdaptationV0(Env):
                                                                            self.amsdu_size)
         # Compute the success rate of each packet based on: current SNR, selected MCS, BER-SNR curves.
         self.psr_list = [self.error_model.get_packet_success_rate(current_snr, self.mcs, self.amsdu_size)] * n_packets
-        self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, self.mcs, last_pkt))
+        if last_pkt != 0:
+            self.psr_list.append(self.error_model.get_packet_success_rate(current_snr, self.mcs, last_pkt))
 
         self.rnd_list = np.random.rand(len(self.psr_list), )
         self.succ_list = self.rnd_list <= self.psr_list

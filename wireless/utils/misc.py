@@ -19,7 +19,6 @@ def calculate_thermal_noise(bw_mhz):
 
 def import_scenario(filepath):
     path = os.path.abspath(filepath)
-    print("scenario_abs_path=", path)
     df = pd.read_csv(path)
     return df
 

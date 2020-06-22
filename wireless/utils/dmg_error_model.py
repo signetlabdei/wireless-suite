@@ -18,7 +18,6 @@ class DmgErrorModel:
 
     def __init__(self, path, n_mcs):
         self.path = os.path.abspath(path)  # Absolute path to the file with BER-vs-SNR curves
-        print("error_model_abs_path=", self.path)
         self.n_mcs = n_mcs  # The number of MCSs to load for the error model
         self.bersnr_curves = [None] * self.n_mcs
         self._load_bersnr_curves()
