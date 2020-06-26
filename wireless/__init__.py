@@ -9,3 +9,8 @@ register(
     id='AdLinkAdaptation-v0',
     entry_point='wireless.envs:AdLinkAdaptationV0',
 )
+
+register(
+    id='AdAmcPacket-v0',
+    entry_point='wireless.envs:AdAmcPacketV0',
+)
