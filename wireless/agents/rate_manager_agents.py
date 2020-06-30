@@ -64,3 +64,228 @@ class OptimalAgent:
 
         selected_mcs = np.argmax(rx_bits)
         return selected_mcs
+
+
+class ArfAgent:
+    """
+    This agent implements the classic Automatic Rate Fallback (ARF) algorithm found in
+    Kamerman, A. and Monteban, L. (1997), WaveLAN®‐II: a high‐performance wireless LAN for the unlicensed band.
+    Bell Labs Tech. J., 2: 118-133. doi:10.1002/bltj.2069
+
+    Implementation taken from
+    Mathieu Lacage, Mohammad Hossein Manshaei, and Thierry Turletti. 2004. IEEE 802.11 rate adaptation: a practical
+    approach. In Proceedings of the 7th ACM international symposium on Modeling, analysis and simulation of wireless
+    and mobile systems (MSWiM ’04). Association for Computing Machinery, New York, NY, USA, 126–134.
+    DOI:https://doi.org/10.1145/1023663.1023687
+
+    NOTE: The agent is intended to be used with AdAmcPacket envs.
+    """
+
+    def __init__(self, action_space):
+        self._max_mcs = action_space.n - 1
+        self._pkt_succ_count = 0
+
+    def act(self, state, info=None):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "mcs" : int
+                MCS used for the previous packet(s)
+            "pkt_succ" : int
+                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+        info : dict
+            Not used, kept to maintain the same signature for all agents.
+
+        Returns
+        -------
+        mcs : int
+        """
+        success = state["pkt_succ"][0]
+        if success is None:
+            # Initialize with highest MCS
+            return self._max_mcs
+
+        mcs = state["mcs"][0]
+
+        if success == 0:
+            # If transmission fails: fall back
+            self._pkt_succ_count = 0
+            return max(0, mcs - 1)
+
+        else:
+            self._pkt_succ_count += 1
+
+            if self._pkt_succ_count == 10:
+                # Reset counter
+                self._pkt_succ_count = 0
+                # Increase MCS if possible
+                return min(self._max_mcs, mcs + 1)
+
+            else:
+                return mcs
+
+
+class AarfAgent:
+    """
+    This agent implements the Adaptive Automatic Rate Fallback (AARF) algorithm found in
+    Mathieu Lacage, Mohammad Hossein Manshaei, and Thierry Turletti. 2004. IEEE 802.11 rate adaptation: a practical
+    approach. In Proceedings of the 7th ACM international symposium on Modeling, analysis and simulation of wireless
+    and mobile systems (MSWiM ’04). Association for Computing Machinery, New York, NY, USA, 126–134.
+    DOI:https://doi.org/10.1145/1023663.1023687
+
+    NOTE: The agent is intended to be used with AdAmcPacket envs.
+    """
+
+    def __init__(self, action_space):
+        self._max_mcs = action_space.n - 1
+
+        self._pkt_succ_count = 0
+        self._pkt_fail_count = 0
+
+        self._succ_to_advance = 10
+
+    def act(self, state, info=None):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "mcs" : int
+                MCS used for the previous packet(s)
+            "pkt_succ" : int
+                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+        info : dict
+            Not used, kept to maintain the same signature for all agents.
+
+        Returns
+        -------
+        mcs : int
+        """
+        success = state["pkt_succ"][0]
+        if success is None:
+            # Initialize with highest MCS
+            return self._max_mcs
+
+        mcs = state["mcs"][0]
+
+        if success == 0:
+            # If transmission fails
+            self._pkt_succ_count = 0
+            self._pkt_fail_count += 1
+
+            if self._pkt_fail_count == 1:
+                self._succ_to_advance = min(50, 2 * self._succ_to_advance)
+            else:
+                self._succ_to_advance = 10
+
+            return max(0, mcs - 1)
+
+        else:
+            self._pkt_succ_count += 1
+            self._pkt_fail_count = 0
+
+            if self._pkt_succ_count == self._succ_to_advance:
+                # Reset counter
+                self._pkt_succ_count = 0
+                # Increase MCS if possible
+                return min(self._max_mcs, mcs + 1)
+
+            else:
+                return mcs
+
+
+class OnoeAgent:
+    """
+    This agent implements the Onoe protocol for link rate adaptation, used in some 802.11 drivers such as MadWiFi.
+    No papers on the actual implementations were found. This implementation is based on
+    He, J., Tang, Z., Chen, H.‐H. and Wang, S. (2012), Performance analysis of ONOE protocol—an IEEE 802.11 link
+    adaptation algorithm. Int. J. Commun. Syst., 25: 821-831. doi:10.1002/dac.1290
+
+    NOTE: The agent is intended to be used with AdAmcPacket envs.
+    """
+
+    def __init__(self, action_space, theta_r=0.5, theta_c=0.1, n_c=10, window=100e-3):
+        self._max_mcs = action_space.n - 1
+
+        self. _theta_r = theta_r
+        self._theta_c = theta_c
+        self._n_c = n_c
+        self._window = window
+
+        self._window_start = None
+        self._pkt_succ_count = 0
+        self._pkt_fail_count = 0
+        self._credit = 0
+
+        self._mcs = self._max_mcs
+
+    def act(self, state, info):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "pkt_succ" : int
+                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+        info : dict
+            "current_time" : float
+                The absolute time when the last packet was sent.
+
+        Returns
+        -------
+        mcs : int
+        """
+        success = state["pkt_succ"][0]
+        if success is None:
+            # Initialize with highest MCS
+            return self._max_mcs
+
+        time = info["current_time"]
+
+        if self._window_start is None:
+            self._window_start = time
+
+        if time - self._window_start < self._window:
+            # Same window: updated counters and keep the same MCS
+            self._update_counters(success)
+
+        else:
+            # New window
+            self._window_start += self._window
+            tot_packets = self._pkt_succ_count + self._pkt_fail_count
+
+            if self._pkt_fail_count / tot_packets > self._theta_r:
+                # (1)
+                self._credit = 0
+                self._mcs = max(0, self._mcs - 1)
+
+            elif self._pkt_fail_count / tot_packets > self._theta_c:
+                # (2)
+                self._credit = max(0, self._credit - 1)
+
+            else:
+                # (3)
+                self._credit += 1
+
+            if self._credit == self._n_c:
+                # (4)
+                self._credit = 0
+                self._mcs = min(self._max_mcs, self._mcs + 1)
+
+            # New window: reset counters
+            self._pkt_succ_count = 0
+            self._pkt_fail_count = 0
+
+        return self._mcs
+
+    def _update_counters(self, success):
+        if success == 1:
+            self._pkt_succ_count += 1
+        else:
+            self._pkt_fail_count += 1
+
