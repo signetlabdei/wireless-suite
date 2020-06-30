@@ -6,6 +6,7 @@ SPDX-License-Identifier: BSD-3-Clause
 import os
 import pandas as pd
 from scipy import constants
+import math
 
 
 def clip(value, min_value, max_value):
@@ -55,3 +56,13 @@ def get_tx_pkt_size_list(mcs_idx, time, packet_size):
         tx_pkts_list.append(last_pkt)
 
     return n_packets, last_pkt, tx_pkts_list
+
+
+def get_timestep(time, timestep):
+    return math.floor(time / timestep)
+
+
+def get_packet_duration(packet_size, mcs):
+   rate = get_mcs_data_rate(mcs)
+   duration = packet_size / rate
+   return duration
