@@ -34,7 +34,7 @@ class AdAmcPacketV0(Env):
         dmg_path : str
             The path to the folder containing the channel simulation campaigns.
         obs_duration : float
-            The duration in [s] of an observation.
+            The duration in [s] of an observation. If None, it corresponds to the entire scenario duration.
         history_length : int
             The length of the lists returned as observation. See step(self, action) for more information.
         n_mcs : int
@@ -43,6 +43,8 @@ class AdAmcPacketV0(Env):
             Packet size in [b].
         """
         super().__init__()
+
+        assert history_length > 0, "History length must be strictly positive"
 
         # Member variables
         self._dmg_path = dmg_path
@@ -76,7 +78,9 @@ class AdAmcPacketV0(Env):
         pkt_succ_space = spaces.Discrete(2)
         mcs_space = spaces.Discrete(self._n_mcs)
 
-        self._observation_space = spaces.Tuple((snr_space, pkt_succ_space, mcs_space))
+        self._observation_space = spaces.Dict({"snr": snr_space,
+                                               "pkt_succ": pkt_succ_space,
+                                               "mcs": mcs_space})
         self._action_space = mcs_space
 
         self.seed()  # Seed the environment
@@ -99,6 +103,10 @@ class AdAmcPacketV0(Env):
     def action_space(self):
         return self._action_space
 
+    @property
+    def scenario_duration(self):
+        return self._scenario_duration
+
     # Public methods
     def reset(self):
         # Random choice of a particular scenario
@@ -106,7 +114,7 @@ class AdAmcPacketV0(Env):
         self._import_scenario(scenario)
 
         # Pick up a random new starting point in the SNR-vs-Time trace
-        self._initial_time = random.uniform(0, self._scenario_duration - self._observation_duration)
+        self._initial_time = self._get_initial_time()
         self._current_time = self._initial_time
 
         return self._get_observation()
@@ -143,7 +151,7 @@ class AdAmcPacketV0(Env):
         observation = self._get_observation()
         reward = self._calculate_reward()
         done = self._is_done()
-        info = {}
+        info = self._get_info()
         return observation, reward, done, info
 
     def render(self, mode='human', close=False):
@@ -157,6 +165,22 @@ class AdAmcPacketV0(Env):
         self._seed = seed
 
     # Private methods
+    def _get_initial_time(self):
+        """
+        Get the initial time for the observation.
+
+        Returns
+        -------
+        initial_time : float
+        """
+        if self._observation_duration is None:
+            return 0
+
+        else:
+            assert self._scenario_duration >= self._observation_duration, "The observation duration is too long for " \
+                                                                          "this scenario "
+            return random.uniform(0, self._scenario_duration - self._observation_duration)
+
     def _import_scenario(self, scenario):
         """
         Import the scenario, setting all the related attributes.
@@ -170,8 +194,9 @@ class AdAmcPacketV0(Env):
         # The 't' column indicates the start of each timestep
         self._scenario_duration = self._scenario['t'].iloc[-1] + self._network_timestep
 
-        assert self._scenario_duration >= self._observation_duration, "Observation duration should be less than the " \
-                                                                      "scenario duration "
+        if self._observation_duration is not None:
+            assert self._scenario_duration >= self._observation_duration, "Observation duration should be less than the " \
+                                                                          "scenario duration "
 
     def _get_observation(self):
         """
@@ -181,12 +206,16 @@ class AdAmcPacketV0(Env):
 
         Returns
         -------
-        snr_history : list of float
-        pkts_success_history : list of int
-            List of [0,1] values, where 1 indicates a successful transmission, and 0 a failed transmission.
-        mcs_history : list of int
+        obs : dict
+            "snr" : list of float
+            "pkt_succ" : list of int
+                List of [0,1] values, where 1 indicates a successful transmission, and 0 a failed transmission.
+            "mcs" : list of int
         """
-        return self._snr_history, self._pkt_succ_history, self._mcs_history
+        obs = {"snr": self._snr_history,
+               "pkt_succ": self._pkt_succ_history,
+               "mcs": self._mcs_history}
+        return obs
 
     def _take_action(self, mcs):
         """
@@ -226,7 +255,7 @@ class AdAmcPacketV0(Env):
 
         Returns
         -------
-        reward: float
+        reward : float
         """
         if self._pkt_succ_history[0] == 1:
             return self._packet_size
@@ -243,7 +272,22 @@ class AdAmcPacketV0(Env):
         -------
         is_done : bool
         """
-        return self._current_time - self._initial_time >= self._observation_duration
+        if self._observation_duration is None:
+            return self._current_time >= self._scenario_duration
+        else:
+            return self._current_time - self._initial_time >= self._observation_duration
+
+    def _get_info(self):
+        """
+        Get debug information from the environment.
+
+        Returns
+        -------
+        info : dict
+        """
+        info = {"pkt_size": self._packet_size,
+                "current_time": self._current_time}
+        return info
 
 
 # Simple test
