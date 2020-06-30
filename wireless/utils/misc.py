@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import numpy as np
 from scipy import constants
+import math
 
 
 def clip(value, min_value, max_value):
