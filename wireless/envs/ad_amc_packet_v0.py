@@ -126,7 +126,7 @@ class AdAmcPacketV0(Env):
 
         Parameters
         ----------
-        action : object
+        action : int
             The action to be taken.
 
         Returns
@@ -196,7 +196,7 @@ class AdAmcPacketV0(Env):
 
         Parameters
         ----------
-        mcs : object
+        mcs : int
             The MCS in the action space used to send the packet.
         """
         assert self.action_space.contains(mcs), f"{mcs} ({type(mcs)}) invalid"
