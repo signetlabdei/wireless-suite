@@ -54,15 +54,15 @@ class AdAmcPacketV0(Env):
         self._dmg_path = dmg_path
         self._campaign = campaign
         self._scenarios_list = scenarios_list
-        self._n_mcs = n_mcs  # the number of MCS considered [0, n_mcs)
-        self._history_length = history_length  # the number of past steps visible as observations
+        self._n_mcs = n_mcs  # The number of MCS considered [0, n_mcs)
+        self._history_length = history_length  # The number of past steps visible as observations
         self._network_timestep = net_timestep  # The network timestep of the environment
-        self._observation_duration = obs_duration  # temporal duration of an observation
+        self._observation_duration = obs_duration  # Temporal duration of an observation
         self._packet_size = packet_size  # The size of a packet. Default: max A-MSDU size in bits (7935 * 8 b)
         self._harq_retx = harq_retx  # The number of HARQ retransmission after the first transmission
         self._reward_type = reward_type  # The type of reward for the environment
 
-        self._seed = None  # the seed for RNGs
+        self._seed = None  # The seed for RNGs
         self._scenario_duration = None  # The duration of the current scenario
         self._initial_time = None  # Initial time of an observation
         self._current_time = None  # Current time of an observation
@@ -85,6 +85,7 @@ class AdAmcPacketV0(Env):
         else:
             raise ValueError(f"Reward type '{reward_type}' not recognized.")
 
+        self._time_history = [None] * self._history_length  # The history of packet start transmission times [s]
         self._snr_history = [None] * self._history_length  # The history of observed SNRs
         self._pkt_succ_history = [None] * self._history_length  # The history of pkts success (1), failure (0), or
         # retransmission (2)
@@ -94,13 +95,15 @@ class AdAmcPacketV0(Env):
         self._mcs_history = [None] * self._history_length  # The history of chosen MCSs
 
         # Define: Observation space and Action space
-        snr_space = spaces.Box(low=-50, high=80, shape=(self._history_length,), dtype=np.float32)
+        time_space = spaces.Box(low=0, high=np.inf, shape=(self._history_length,), dtype=np.float32)
+        snr_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self._history_length,), dtype=np.float32)
         pkt_succ_space = spaces.Discrete(3)
         pkt_retx_space = spaces.Discrete(self._harq_retx + 1)  # harq_retx=0 means just a single transmission
-        pkt_delay_space = spaces.Box(low=0, high=1, shape=(self._history_length,))
+        pkt_delay_space = spaces.Box(low=0, high=np.inf, shape=(self._history_length,), dtype=np.float32)
         mcs_space = spaces.Discrete(self._n_mcs)
 
-        self._observation_space = spaces.Dict({"snr": snr_space,
+        self._observation_space = spaces.Dict({"time": time_space,
+                                               "snr": snr_space,
                                                "pkt_succ": pkt_succ_space,
                                                "pkt_retx": pkt_retx_space,
                                                "pkt_delay": pkt_delay_space,
@@ -137,6 +140,7 @@ class AdAmcPacketV0(Env):
         self._current_retx = 0
         self._current_pkt_delay = 0
 
+        self._time_history = [None] * self._history_length
         self._snr_history = [None] * self._history_length
         self._pkt_succ_history = [None] * self._history_length
         self._pkt_retx_history = [None] * self._history_length
@@ -236,11 +240,13 @@ class AdAmcPacketV0(Env):
         """
         Get the current observation.
 
-        Assumes the latest event to be in position [0].
+        Assumes the latest event to be in position [-1].
 
         Returns
         -------
         obs : dict
+            "time" : list of float
+                List of time when the packets were sent.
             "snr" : list of float
             "pkt_succ" : list of int
                 List of [0,2] values, where 1 indicates a successful transmission, 0 a failed transmission,
@@ -254,7 +260,8 @@ class AdAmcPacketV0(Env):
                 also affect the total packet delay. The delay is incremented at each retransmission.
             "mcs" : list of int
         """
-        obs = {"snr": self._snr_history,
+        obs = {"time": self._time_history,
+               "snr": self._snr_history,
                "pkt_succ": self._pkt_succ_history,
                "pkt_retx": self._pkt_retx_history,
                "pkt_delay": self._pkt_delay_history,
@@ -290,17 +297,20 @@ class AdAmcPacketV0(Env):
         else:
             success = 0  # Packet failed
 
-        # Update current time for next packet
+        # Update current packet duration
         duration = misc.get_packet_duration(self._packet_size, mcs)
         self._current_pkt_delay += duration
-        self._current_time += duration
 
-        # Roll results: [0] regards the most recent packet
-        self._snr_history = [current_snr] + self._snr_history[:-1]
-        self._pkt_succ_history = [success] + self._pkt_succ_history[:-1]
-        self._pkt_retx_history = [self._current_retx] + self._pkt_succ_history[:-1]
-        self._pkt_delay_history = [self._current_pkt_delay] + self._pkt_succ_history[:-1]
-        self._mcs_history = [mcs] + self._mcs_history[:-1]
+        # Roll results: [-1] refers to the most recent packet
+        self._time_history = self._time_history[1:] + [self._current_time]
+        self._snr_history = self._snr_history[1:] + [current_snr]
+        self._pkt_succ_history = self._pkt_succ_history[1:] + [success]
+        self._pkt_retx_history = self._pkt_succ_history[1:] + [self._current_retx]
+        self._pkt_delay_history = self._pkt_succ_history[1:] + [self._current_pkt_delay]
+        self._mcs_history = self._mcs_history[1:] + [mcs]
+
+        # Update time for next packet transmission (back to back)
+        self._current_time += duration
 
         # Update retransmission counter
         if success == 1 or success == 0:
@@ -326,7 +336,8 @@ class AdAmcPacketV0(Env):
         -------
         reward : float
         """
-        last_succ = self._pkt_succ_history[0]
+        last_succ = self._pkt_succ_history[-1]
+
         if last_succ == 1:
             return self._packet_size
         elif last_succ == 0 or last_succ == 2:
@@ -346,8 +357,8 @@ class AdAmcPacketV0(Env):
         -------
         reward : float
         """
-        last_succ = self._pkt_succ_history[0]
-        last_delay = self._pkt_delay_history[0]
+        last_succ = self._pkt_succ_history[-1]
+        last_delay = self._pkt_delay_history[-1]
 
         assert last_delay is not None, "Last delay is None"
 
