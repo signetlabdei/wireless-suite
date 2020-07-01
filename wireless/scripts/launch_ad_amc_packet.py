@@ -16,21 +16,13 @@ HARQ_RETX = 2  # The number of HARQ retransmission after the first transmission
 REWARD_TYPE = "rx_bits"
 
 
-def main(agent_type="ARF"):
-    assert len(SCENARIOS_LIST) == 1, "Exactly 1 scenario should be evaluated with this script"
+def main(env, agent):
+    agent_type = agent.__class__.__name__
 
-    env = gym.make("AdAmcPacket-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST, obs_duration=OBS_DURATION,
-                   history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX,
-                   reward_type=REWARD_TYPE)
-
-    if agent_type == "ARF":
-        agent = rate_manager_agents.ArfAgent(env.action_space)
-    elif agent_type == "AARF":
-        agent = rate_manager_agents.AarfAgent(env.action_space)
-    elif agent_type == "ONOE":
-        agent = rate_manager_agents.OnoeAgent(env.action_space)
+    if OBS_DURATION is None:
+        obs_duration = env.scenario_duration
     else:
-        raise ValueError(f"Agent '{agent_type}' not recognized")
+        obs_duration = OBS_DURATION
 
     # Init stats
     done = False
@@ -54,14 +46,7 @@ def main(agent_type="ARF"):
     info = {}
 
     while not done:
-        if agent_type == "ARF":
-            action = agent.act(state, info)
-        elif agent_type == "AARF":
-            action = agent.act(state, info)
-        elif agent_type == "ONOE":
-            action = agent.act(state, info)
-        else:
-            raise ValueError(f"Agent '{agent_type}' not recognized")
+        action = agent.act(state, info)
 
         state, reward, done, info = env.step(action)
 
@@ -87,8 +72,8 @@ def main(agent_type="ARF"):
     env.close()
 
     # Stats
-    avg_generated_rate_mbps = tot_mb_generated / env.scenario_duration
-    avg_thr_mbps = tot_mb_rx / env.scenario_duration
+    avg_generated_rate_mbps = tot_mb_generated / obs_duration
+    avg_thr_mbps = tot_mb_rx / obs_duration
     avg_reward = np.mean(reward_t)
     psr = tot_rx_pkts / tot_sent_pkts
     avg_succ_pkt_retx = np.mean(rx_pkts_retx)
@@ -145,6 +130,12 @@ def main(agent_type="ARF"):
 
 
 if __name__ == '__main__':
-    main(agent_type="ARF")
-    main(agent_type="AARF")
-    main(agent_type="ONOE")
+    assert len(SCENARIOS_LIST) == 1, "Exactly 1 scenario should be evaluated with this script"
+
+    environment = gym.make("AdAmcPacket-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST,
+                           obs_duration=OBS_DURATION, history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP,
+                           harq_retx=HARQ_RETX, reward_type=REWARD_TYPE)
+
+    main(environment, rate_manager_agents.ArfAgent(environment.action_space))
+    main(environment, rate_manager_agents.AarfAgent(environment.action_space))
+    main(environment, rate_manager_agents.OnoeAgent(environment.action_space))
