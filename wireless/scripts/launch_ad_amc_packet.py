@@ -5,6 +5,7 @@ import gym
 import numpy as np
 import matplotlib.pyplot as plt
 from wireless.agents import rate_manager_agents
+from wireless.utils import misc
 
 # Env params
 CAMPAIGN = "scenarios_v3"
@@ -42,8 +43,7 @@ def main(env, agent):
     delay_t = []
 
     # Run agent
-    state = env.reset()
-    info = {}
+    state, info = env.reset()
 
     while not done:
         action = agent.act(state, info)
@@ -136,6 +136,12 @@ if __name__ == '__main__':
                            obs_duration=OBS_DURATION, history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP,
                            harq_retx=HARQ_RETX, reward_type=REWARD_TYPE)
 
+    main(environment, rate_manager_agents.PredictiveTargetBerAgent(action_space=environment.action_space,
+                                                                   error_model=environment.error_model,
+                                                                   prediction_func=lambda t, snr, t_next:
+                                                                   misc.predict_snr(t, snr, t_next,
+                                                                                    kind="previous"),
+                                                                   target_ber=1e-6))
     main(environment, rate_manager_agents.ArfAgent(environment.action_space))
     main(environment, rate_manager_agents.AarfAgent(environment.action_space))
     main(environment, rate_manager_agents.OnoeAgent(environment.action_space))
