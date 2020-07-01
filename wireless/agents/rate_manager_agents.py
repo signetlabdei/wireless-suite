@@ -95,7 +95,7 @@ class ArfAgent:
             "mcs" : int
                 MCS used for the previous packet(s)
             "pkt_succ" : int
-                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+                Last packet(s) were successful (1) or not. If None, the communication just started.
         info : dict
             Not used, kept to maintain the same signature for all agents.
 
@@ -110,12 +110,8 @@ class ArfAgent:
 
         mcs = state["mcs"][0]
 
-        if success == 0:
-            # If transmission fails: fall back
-            self._pkt_succ_count = 0
-            return max(0, mcs - 1)
-
-        else:
+        if success == 1:
+            # If transmission is successful
             self._pkt_succ_count += 1
 
             if self._pkt_succ_count == 10:
@@ -126,6 +122,11 @@ class ArfAgent:
 
             else:
                 return mcs
+
+        else:
+            # If transmission fails: fall back
+            self._pkt_succ_count = 0
+            return max(0, mcs - 1)
 
 
 class AarfAgent:
@@ -172,19 +173,8 @@ class AarfAgent:
 
         mcs = state["mcs"][0]
 
-        if success == 0:
-            # If transmission fails
-            self._pkt_succ_count = 0
-            self._pkt_fail_count += 1
-
-            if self._pkt_fail_count == 1:
-                self._succ_to_advance = min(50, 2 * self._succ_to_advance)
-            else:
-                self._succ_to_advance = 10
-
-            return max(0, mcs - 1)
-
-        else:
+        if success == 1:
+            # If transmission is successful
             self._pkt_succ_count += 1
             self._pkt_fail_count = 0
 
@@ -196,6 +186,18 @@ class AarfAgent:
 
             else:
                 return mcs
+
+        else:
+            # If transmission fails
+            self._pkt_succ_count = 0
+            self._pkt_fail_count += 1
+
+            if self._pkt_fail_count == 1:
+                self._succ_to_advance = min(50, 2 * self._succ_to_advance)
+            else:
+                self._succ_to_advance = 10
+
+            return max(0, mcs - 1)
 
 
 class OnoeAgent:
@@ -211,7 +213,7 @@ class OnoeAgent:
     def __init__(self, action_space, theta_r=0.5, theta_c=0.1, n_c=10, window=100e-3):
         self._max_mcs = action_space.n - 1
 
-        self. _theta_r = theta_r
+        self._theta_r = theta_r
         self._theta_c = theta_c
         self._n_c = n_c
         self._window = window
@@ -288,4 +290,3 @@ class OnoeAgent:
             self._pkt_succ_count += 1
         else:
             self._pkt_fail_count += 1
-
