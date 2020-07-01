@@ -19,7 +19,7 @@ class AdAmcPacketV0(Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
     def __init__(self, campaign, net_timestep, scenarios_list=None, dmg_path="../../dmg_files/", obs_duration=1,
-                 history_length=5, n_mcs=13, packet_size=7935 * 8, harq_retx=2):
+                 history_length=5, n_mcs=13, packet_size=7935 * 8, harq_retx=2, reward_type="rx_bits"):
         """
         Initialize the environment.
 
@@ -43,6 +43,8 @@ class AdAmcPacketV0(Env):
             Packet size in [b].
         harq_retx : int
             The number of HARQ retransmission after the first transmission. This affects the maximum delay.
+        reward_type : str
+            Type of reward yielded by the environment. Possible choices are ["rx_bits", "negative_delay"].
         """
         super().__init__()
 
@@ -58,6 +60,7 @@ class AdAmcPacketV0(Env):
         self._observation_duration = obs_duration  # temporal duration of an observation
         self._packet_size = packet_size  # The size of a packet. Default: max A-MSDU size in bits (7935 * 8 b)
         self._harq_retx = harq_retx  # The number of HARQ retransmission after the first transmission
+        self._reward_type = reward_type  # The type of reward for the environment
 
         self._seed = None  # the seed for RNGs
         self._scenario_duration = None  # The duration of the current scenario
@@ -73,6 +76,14 @@ class AdAmcPacketV0(Env):
 
         if self._scenarios_list is None:
             self._scenarios_list = [file for file in os.listdir(self._qd_scenarios_path) if file.endswith(".csv")]
+
+        # Set the requested reward
+        if reward_type == "rx_bits":
+            self._calculate_reward = self._rx_bits_reward
+        elif reward_type == "negative_delay":
+            self._calculate_reward = self._negative_delay_reward
+        else:
+            raise ValueError(f"Reward type '{reward_type}' not recognized.")
 
         self._snr_history = [None] * self._history_length  # The history of observed SNRs
         self._pkt_succ_history = [None] * self._history_length  # The history of pkts success (1), failure (0), or
@@ -304,7 +315,7 @@ class AdAmcPacketV0(Env):
         else:
             raise ValueError(f"success={success} not recognized")
 
-    def _calculate_reward(self):
+    def _rx_bits_reward(self):
         """
         Compute the reward based on the latest packet sent.
 
@@ -320,6 +331,36 @@ class AdAmcPacketV0(Env):
             return self._packet_size
         elif last_succ == 0 or last_succ == 2:
             return 0
+        else:
+            raise ValueError(f"Unexpected value for _succ_pkts_history: {self._pkt_succ_history}")
+
+    def _negative_delay_reward(self):
+        """
+        Compute the reward based on the latest packet sent.
+
+        The reward is equal to the negative delay of the packet if it was successfully transmitted, or scaled by a
+        factor alpha if the transmission failed.
+        The gold of this reward is to minimize the packet delay while discouraging packet loss.
+
+        Returns
+        -------
+        reward : float
+        """
+        last_succ = self._pkt_succ_history[0]
+        last_delay = self._pkt_delay_history[0]
+
+        assert last_delay is not None, "Last delay is None"
+
+        if last_succ == 1:
+            # Packet sent successfully transmitted
+            return -1 * last_delay
+        elif last_succ == 2:
+            # Retransmissions are just transitory
+            return 0
+        elif last_succ == 0:
+            # Failed transmissions should be discouraged
+            alpha = 2
+            return -alpha * last_delay
         else:
             raise ValueError(f"Unexpected value for _succ_pkts_history: {self._pkt_succ_history}")
 

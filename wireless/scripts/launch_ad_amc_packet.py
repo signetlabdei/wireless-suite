@@ -13,13 +13,15 @@ HISTORY_LENGTH = 1  # The number of past SNR values to consider for the state
 NET_TIMESTEP = 5e-3  # The real network timestep [s]
 OBS_DURATION = None  # Observation duration [s]; If None, the whole scenario is the observation
 HARQ_RETX = 2  # The number of HARQ retransmission after the first transmission
+REWARD_TYPE = "rx_bits"
 
 
 def main(agent_type="ARF"):
     assert len(SCENARIOS_LIST) == 1, "Exactly 1 scenario should be evaluated with this script"
 
     env = gym.make("AdAmcPacket-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST, obs_duration=OBS_DURATION,
-                   history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX)
+                   history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX,
+                   reward_type=REWARD_TYPE)
 
     if agent_type == "ARF":
         agent = rate_manager_agents.ArfAgent(env.action_space)
