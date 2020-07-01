@@ -65,24 +65,24 @@ def main(agent_type="ARF"):
 
         state, reward, done, info = env.step(action)
 
-        if state["pkt_retx"][0] == 0:
+        if state["pkt_retx"][-1] == 0:
             # If retx == 0: new packet, irrespective of its success
             tot_sent_pkts += 1
             tot_mb_generated += info["pkt_size"] / 1e6
 
         tot_pkts += 1
 
-        if state["pkt_succ"][0] == 1:
+        if state["pkt_succ"][-1] == 1:
             tot_rx_pkts += 1
             tot_mb_rx += info["pkt_size"] / 1e6
-            rx_pkts_retx.append(state["pkt_retx"][0])
-            rx_pkts_delay.append(state["pkt_delay"][0])
+            rx_pkts_retx.append(state["pkt_retx"][-1])
+            rx_pkts_delay.append(state["pkt_delay"][-1])
 
         reward_t.append(reward)
         time.append(info["current_time"])
-        mcs_t.append(state["mcs"][0])
-        retx_t.append(state["pkt_retx"][0])
-        delay_t.append(state["pkt_delay"][0])
+        mcs_t.append(state["mcs"][-1])
+        retx_t.append(state["pkt_retx"][-1])
+        delay_t.append(state["pkt_delay"][-1])
 
     env.close()
 

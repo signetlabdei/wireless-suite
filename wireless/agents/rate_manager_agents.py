@@ -336,12 +336,12 @@ class ArfAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][0]
+        success = state["pkt_succ"][-1]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
 
-        mcs = state["mcs"][0]
+        mcs = state["mcs"][-1]
 
         if success == 1:
             # If transmission is successful
@@ -399,12 +399,12 @@ class AarfAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][0]
+        success = state["pkt_succ"][-1]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
 
-        mcs = state["mcs"][0]
+        mcs = state["mcs"][-1]
 
         if success == 1:
             # If transmission is successful
@@ -475,7 +475,7 @@ class OnoeAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][0]
+        success = state["pkt_succ"][-1]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
