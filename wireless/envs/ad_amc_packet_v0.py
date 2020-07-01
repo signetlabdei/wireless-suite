@@ -155,7 +155,7 @@ class AdAmcPacketV0(Env):
         self._initial_time = self._get_initial_time()
         self._current_time = self._initial_time
 
-        return self._get_observation()
+        return self._get_observation(), self._get_info()
 
     def initialize(self):
         """

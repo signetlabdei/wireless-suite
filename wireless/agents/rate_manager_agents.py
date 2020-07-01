@@ -290,3 +290,39 @@ class OnoeAgent:
             self._pkt_succ_count += 1
         else:
             self._pkt_fail_count += 1
+
+
+class PredictiveTargetBerAgent:
+    """
+    This agent computes the MCS based on a target BER and a prediction of the next packet's SNR
+    """
+
+    def __init__(self, action_space, error_model, prediction_func, target_ber=1e-6):
+        self._max_mcs = action_space.n - 1
+        self._error_model = error_model
+        self._prediction_func = prediction_func
+        self._target_ber = target_ber
+
+    def act(self, state, info=None):
+        # Predict SNR
+        # Latest event is in [-1]
+        current_time = info["current_time"]
+        times = state["time"]
+        snrs = state["snr"]
+
+        times = [t for s, t in zip(snrs, times) if s is not None]  # Remove leading None's
+        snrs = [s for s in snrs if s is not None]  # Remove leading None's
+
+        predicted_snr = self._prediction_func(times, snrs, current_time)
+
+        bers = [self._error_model.get_ber(predicted_snr, mcs)
+                for mcs in range(self._max_mcs + 1)]
+        valid_mcs_list = np.nonzero(np.array(bers) <= self._target_ber)[0]
+
+        if valid_mcs_list.size == 0:
+            # If no valid MCS: use the lowest one
+            selected_mcs = 0
+        else:
+            selected_mcs = valid_mcs_list[-1]
+
+        return selected_mcs

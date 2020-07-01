@@ -7,6 +7,8 @@ import os
 import pandas as pd
 from scipy import constants
 import math
+import numpy as np
+from scipy.interpolate import interp1d
 
 
 def clip(value, min_value, max_value):
@@ -162,3 +164,20 @@ def get_packet_duration(packet_size, mcs):
     rate = get_mcs_data_rate(mcs)
     duration = packet_size / rate
     return duration
+
+
+def predict_snr(t, snr, t_next, kind="previous"):
+    assert len(t) == len(snr), "x and y must have the same size"
+    if len(t) == 0:
+        # Nothing to interpolate, assume inf SNR
+        return np.inf
+
+    if len(t) == 1:
+        # Assume constant SNR
+        return snr
+
+    f = interp1d(t, snr,
+                 kind=kind,
+                 fill_value="extrapolate")
+    return f(t_next)
+
