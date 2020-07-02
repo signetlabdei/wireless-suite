@@ -79,9 +79,9 @@ class AdAmcPacketV0(Env):
 
         # Set the requested reward
         if reward_type == "rx_bits":
-            self._calculate_reward = self._rx_bits_reward
+            self._get_reward = self._rx_bits_reward
         elif reward_type == "negative_delay":
-            self._calculate_reward = self._negative_delay_reward
+            self._get_reward = self._negative_delay_reward
         else:
             raise ValueError(f"Reward type '{reward_type}' not recognized.")
 
@@ -187,7 +187,7 @@ class AdAmcPacketV0(Env):
 
         # update internal state
         observation = self._get_observation()
-        reward = self._calculate_reward()
+        reward = self._get_reward()
         done = self._is_done()
         info = self._get_info()
         return observation, reward, done, info
@@ -211,13 +211,10 @@ class AdAmcPacketV0(Env):
         -------
         initial_time : float
         """
-        if self._observation_duration is None:
-            return 0
-
+        if self._observation_duration is not None:
+            return np.random.uniform(0, self._scenario_duration - self._observation_duration)
         else:
-            assert self._scenario_duration >= self._observation_duration, "The observation duration is too long for " \
-                                                                          "this scenario "
-            return random.uniform(0, self._scenario_duration - self._observation_duration)
+            return 0
 
     def _import_scenario(self, scenario):
         """
@@ -287,7 +284,7 @@ class AdAmcPacketV0(Env):
 
         # Check packet success
         psr = self._error_model.get_packet_success_rate(current_snr, mcs, self._packet_size)
-        success = random.random() <= psr
+        success = np.random.rand() <= psr
 
         # Update retransmission counter
         if success:

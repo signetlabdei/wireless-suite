@@ -553,9 +553,7 @@ class PredictiveTargetBerAgent:
         valid_mcs_list = np.nonzero(np.array(bers) <= self._target_ber)[0]
 
         if valid_mcs_list.size == 0:
-            # If no valid MCS: use the lowest one
-            selected_mcs = 0
+            # If no valid MCS: return the lowest one
+            return 0
         else:
-            selected_mcs = valid_mcs_list[-1]
-
-        return selected_mcs
+            return valid_mcs_list[-1]
