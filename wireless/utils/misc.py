@@ -57,8 +57,7 @@ def import_scenario(filepath):
     df : pd.DataFrame
     """
     path = os.path.abspath(filepath)
-    df = pd.read_csv(path)
-    return df
+    return pd.read_csv(path)
 
 
 def get_mcs_data_rate(mcs_idx):
@@ -119,7 +118,7 @@ def get_tx_pkt_size_list(mcs_idx, time, packet_size):
     assert mcs_rate is not None, f"{mcs_idx} is not a valid MCS or the format is wrong"
 
     data_rate = int(mcs_rate * time)
-    n_packets = data_rate // packet_size
+    n_packets = data_rate // int(packet_size)
     tx_pkts_list = [packet_size] * n_packets
 
     last_pkt = data_rate % packet_size
@@ -162,8 +161,7 @@ def get_packet_duration(packet_size, mcs):
     duration : float
     """
     rate = get_mcs_data_rate(mcs)
-    duration = packet_size / rate
-    return duration
+    return packet_size / rate
 
 
 def predict_snr(t, snr, t_next, kind="previous"):
