@@ -8,6 +8,7 @@ from gym import spaces, Env
 import pandas as pd
 from wireless.utils import misc
 from wireless.utils.dmg_error_model import DmgErrorModel
+from wireless.utils import dot11ad_constants
 
 
 class AdAmcPacketV0(Env):
@@ -19,7 +20,8 @@ class AdAmcPacketV0(Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
     def __init__(self, campaign, net_timestep, scenarios_list=None, dmg_path="../../dmg_files/", obs_duration=1,
-                 history_length=5, n_mcs=13, packet_size=7935 * 8, harq_retx=2, reward_type="rx_bits"):
+                 history_length=5, n_mcs=13, packet_size=dot11ad_constants.aPSDUMaxLength, harq_retx=2,
+                 reward_type="rx_bits"):
         """
         Initialize the environment.
 
@@ -295,7 +297,7 @@ class AdAmcPacketV0(Env):
             success = 0  # Packet failed
 
         # Update current packet duration
-        duration = misc.get_packet_duration(self._packet_size, mcs)
+        duration = dot11ad_constants.get_total_tx_time(self._packet_size, mcs)
         self._current_pkt_delay += duration
 
         # Roll results: [-1] refers to the most recent packet
