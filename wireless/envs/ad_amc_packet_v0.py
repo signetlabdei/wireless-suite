@@ -20,8 +20,7 @@ class AdAmcPacketV0(Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
     def __init__(self, campaign, net_timestep, scenarios_list=None, dmg_path="../../dmg_files/", obs_duration=1,
-                 history_length=5, n_mcs=13, packet_size=dot11ad_constants.maxAmsduSize, harq_retx=2,
-                 reward_type="rx_bits"):
+                 n_mcs=13, packet_size=dot11ad_constants.maxAmsduSize, harq_retx=2, reward_type="rx_bits"):
         """
         Initialize the environment.
 
@@ -37,8 +36,6 @@ class AdAmcPacketV0(Env):
             The path to the folder containing the channel simulation campaigns.
         obs_duration : float
             The duration in [s] of an observation. If None, it corresponds to the entire scenario duration.
-        history_length : int
-            The length of the lists returned as observation. See step(self, action) for more information.
         n_mcs : int
             The number of MCSs to be used, going [0, n_mcs).
         packet_size : int
@@ -50,14 +47,11 @@ class AdAmcPacketV0(Env):
         """
         super().__init__()
 
-        assert history_length > 0, "History length must be strictly positive"
-
         # Member variables
         self._dmg_path = dmg_path
         self._campaign = campaign
         self._scenarios_list = scenarios_list
         self._n_mcs = n_mcs  # The number of MCS considered [0, n_mcs)
-        self._history_length = history_length  # The number of past steps visible as observations
         self._network_timestep = net_timestep  # The network timestep of the environment
         self._observation_duration = obs_duration  # Temporal duration of an observation
         self._packet_size = packet_size  # The size of a packet. Default: max A-MSDU size in bits (7935 * 8 b)
@@ -67,10 +61,14 @@ class AdAmcPacketV0(Env):
         self._seed = None  # The seed for RNGs
         self._scenario_duration = None  # The duration of the current scenario
         self._initial_time = None  # Initial time of an observation
-        self._current_time = None  # Current time of an observation
         self._scenario = pd.DataFrame()  # DataFrame containing ['t', 'SNR']
+
+        self._current_time = None  # Current time of an observation [s]
+        self._current_snr = None  # SNR at current time [dB]
+        self._current_success = None  # Success of the current packet. Success (1), failure (0), or retransmission (2).
         self._current_retx = 0  # The number of retransmissions experienced by the current packet
-        self._current_pkt_delay = 0  # The delay of the current packet
+        self._current_pkt_delay = 0  # The delay of the current packet [s]
+        self._current_mcs = None  # The MCS used for the current packet
 
         self._error_model = DmgErrorModel(self._dmg_path + "/error_model/LookupTable_1458.txt",
                                           self._n_mcs)  # Create DMG error model
@@ -87,21 +85,18 @@ class AdAmcPacketV0(Env):
         else:
             raise ValueError(f"Reward type '{reward_type}' not recognized.")
 
-        self._time_history = [None] * self._history_length  # The history of packet start transmission times [s]
-        self._snr_history = [None] * self._history_length  # The history of observed SNRs
-        self._pkt_succ_history = [None] * self._history_length  # The history of pkts success (1), failure (0), or
-        # retransmission (2)
-        self._pkt_retx_history = [None] * self._history_length  # The history of retransmissions per packet
-        self._pkt_delay_history = [None] * self._history_length  # The history of packet delays, including the
-        # transmission and retransmission delay
-        self._mcs_history = [None] * self._history_length  # The history of chosen MCSs
-
         # Define: Observation space and Action space
-        time_space = spaces.Box(low=0, high=np.inf, shape=(self._history_length,), dtype=np.float32)
-        snr_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self._history_length,), dtype=np.float32)
+        time_space = spaces.Box(low=0, high=np.inf,
+                                shape=(1,),
+                                dtype=np.float32)
+        snr_space = spaces.Box(low=-np.inf, high=np.inf,
+                               shape=(1,),
+                               dtype=np.float32)
         pkt_succ_space = spaces.Discrete(3)
         pkt_retx_space = spaces.Discrete(self._harq_retx + 1)  # harq_retx=0 means just a single transmission
-        pkt_delay_space = spaces.Box(low=0, high=np.inf, shape=(self._history_length,), dtype=np.float32)
+        pkt_delay_space = spaces.Box(low=0, high=np.inf,
+                                     shape=(1,),
+                                     dtype=np.float32)
         mcs_space = spaces.Discrete(self._n_mcs)
 
         self._observation_space = spaces.Dict({"time": time_space,
@@ -138,16 +133,23 @@ class AdAmcPacketV0(Env):
 
     # Public methods
     def reset(self):
+        """
+        Reset the environment.
+
+        Since no packets have been sent yet, the current success and mcs are None.
+
+        Returns
+        -------
+        observation : dict
+            See _take_action
+        info : dict
+            See _get_info
+        """
         # Reset variables
+        self._current_success = None
         self._current_retx = 0
         self._current_pkt_delay = 0
-
-        self._time_history = [None] * self._history_length
-        self._snr_history = [None] * self._history_length
-        self._pkt_succ_history = [None] * self._history_length
-        self._pkt_retx_history = [None] * self._history_length
-        self._pkt_delay_history = [None] * self._history_length
-        self._mcs_history = [None] * self._history_length
+        self._current_mcs = None
 
         # Random choice of a particular scenario
         scenario = random.choice(self._scenarios_list)
@@ -157,16 +159,17 @@ class AdAmcPacketV0(Env):
         self._initial_time = self._get_initial_time()
         self._current_time = self._initial_time
 
-        return self._get_observation(), self._get_info()
+        self._current_snr = self._get_snr()
 
-    def initialize(self):
-        """
-        Initialize the environment's history.
+        # Create initial observation
+        obs = {"time": self._current_time,
+               "snr": self._current_snr,
+               "pkt_succ": self._current_success,
+               "pkt_retx": self._current_retx,
+               "pkt_delay": self._current_pkt_delay,
+               "mcs": self._current_mcs}
 
-        For the moment, a number of packets equal to the history length are sent with minimum MCS.
-        """
-        for i in range(self._history_length):
-            self.step(0)
+        return obs, self._get_info()  # TODO: can we also output the info?
 
     def step(self, action):
         """
@@ -185,10 +188,9 @@ class AdAmcPacketV0(Env):
         done: bool
         info: dict
         """
-        self._take_action(action)
 
         # update internal state
-        observation = self._get_observation()
+        observation = self._take_action(action)
         reward = self._get_reward()
         done = self._is_done()
         info = self._get_info()
@@ -218,6 +220,10 @@ class AdAmcPacketV0(Env):
         else:
             return 0
 
+    def _get_snr(self):
+        timestep = misc.get_timestep(self._current_time, self._network_timestep)
+        return self._scenario['SNR'].iloc[timestep]
+
     def _import_scenario(self, scenario):
         """
         Import the scenario, setting all the related attributes.
@@ -235,38 +241,6 @@ class AdAmcPacketV0(Env):
             assert self._scenario_duration >= self._observation_duration, "Observation duration should be less than " \
                                                                           "the scenario duration "
 
-    def _get_observation(self):
-        """
-        Get the current observation.
-
-        Assumes the latest event to be in position [-1].
-
-        Returns
-        -------
-        obs : dict
-            "time" : list of float
-                List of time when the packets were sent.
-            "snr" : list of float
-            "pkt_succ" : list of int
-                List of [0,2] values, where 1 indicates a successful transmission, 0 a failed transmission,
-                and 2 a retransmission.
-            "pkt_retx" : list of int
-                List of packet retransmissions. Only retransmissions are accounted for, thus a packet which is
-                successfully transmitted at the first try will show a pkt_succ=1 and pkt_retx=0.
-                Packets only fail (pkt_succ=0) when pkt_retx == harq_retx.
-            "pkt_delay" : list of float
-                List of packet delays [s]. The delay includes the packet transmission time since different MCSs will
-                also affect the total packet delay. The delay is incremented at each retransmission.
-            "mcs" : list of int
-        """
-        obs = {"time": self._time_history,
-               "snr": self._snr_history,
-               "pkt_succ": self._pkt_succ_history,
-               "pkt_retx": self._pkt_retx_history,
-               "pkt_delay": self._pkt_delay_history,
-               "mcs": self._mcs_history}
-        return obs
-
     def _take_action(self, mcs):
         """
         Take the action, sending a packet with the given MCS.
@@ -277,52 +251,73 @@ class AdAmcPacketV0(Env):
         ----------
         mcs : int
             The MCS in the action space used to send the packet.
+
+        Returns
+        -------
+        obs : dict
+            "time" : float
+                Time when the packet was sent [s]
+            "snr" : float
+                SNR observed for the sent packet [dB]
+            "pkt_succ" : int
+                List of [0,2] values, where 1 indicates a successful transmission, 0 a failed transmission,
+                and 2 a retransmission.
+            "pkt_retx" : int
+                Packet retransmissions. Only retransmissions are accounted for, thus a packet which is
+                successfully transmitted at the first try will show a pkt_succ=1 and pkt_retx=0.
+                Packets only fail (pkt_succ=0) when pkt_retx == harq_retx.
+            "pkt_delay" : float
+                Packet delay [s]. The delay includes the packet transmission time since different MCSs will
+                also affect the total packet delay. The delay is incremented at each retransmission.
+            "mcs" : int
         """
         assert self.action_space.contains(mcs), f"{mcs} ({type(mcs)}) invalid"
+        self._current_mcs = mcs
 
         # Get current SNR
-        timestep = misc.get_timestep(self._current_time, self._network_timestep)
-        current_snr = self._scenario['SNR'].iloc[timestep]
+        self._current_snr = self._get_snr()
 
         # Check packet success
-        psr = self._error_model.get_packet_success_rate(current_snr, mcs, self._packet_size)
+        psr = self._error_model.get_packet_success_rate(self._current_snr, self._current_mcs, self._packet_size)
         success = np.random.rand() <= psr
 
         # Update retransmission counter
         if success:
-            success = 1  # Packet successfully transmitted
+            self._current_success = 1  # Packet successfully transmitted
         elif self._current_retx < self._harq_retx:
-            success = 2  # Packet retransmitted
+            self._current_success = 2  # Packet retransmitted
         else:
-            success = 0  # Packet failed
+            self._current_success = 0  # Packet failed
 
         # Update current packet duration
-        duration = dot11ad_constants.get_total_tx_time(self._packet_size, mcs)
+        duration = dot11ad_constants.get_total_tx_time(self._packet_size, self._current_mcs)
         self._current_pkt_delay += duration
 
-        # Roll results: [-1] refers to the most recent packet
-        self._time_history = self._time_history[1:] + [self._current_time]
-        self._snr_history = self._snr_history[1:] + [current_snr]
-        self._pkt_succ_history = self._pkt_succ_history[1:] + [success]
-        self._pkt_retx_history = self._pkt_succ_history[1:] + [self._current_retx]
-        self._pkt_delay_history = self._pkt_succ_history[1:] + [self._current_pkt_delay]
-        self._mcs_history = self._mcs_history[1:] + [mcs]
+        # Observation for the action taken
+        obs = {"time": self._current_time,
+               "snr": self._current_snr,
+               "pkt_succ": self._current_success,
+               "pkt_retx": self._current_retx,
+               "pkt_delay": self._current_pkt_delay,
+               "mcs": self._current_mcs}
 
         # Update time for next packet transmission (back to back)
         self._current_time += duration
 
         # Update retransmission counter
-        if success == 1 or success == 0:
+        if self._current_success == 1 or self._current_success == 0:
             # Packet successfully transmitted or failed: reset
             self._current_retx = 0
             self._current_pkt_delay = 0
 
-        elif success == 2:
+        elif self._current_success == 2:
             # Packet retransmitted
             self._current_retx += 1
 
         else:
-            raise ValueError(f"success={success} not recognized")
+            raise ValueError(f"success={self._current_success} not recognized")
+
+        return obs
 
     def _rx_bits_reward(self):
         """
@@ -335,14 +330,13 @@ class AdAmcPacketV0(Env):
         -------
         reward : float
         """
-        last_succ = self._pkt_succ_history[-1]
 
-        if last_succ == 1:
+        if self._current_success == 1:
             return self._packet_size
-        elif last_succ == 0 or last_succ == 2:
+        elif self._current_success == 0 or self._current_success == 2:
             return 0
         else:
-            raise ValueError(f"Unexpected value for _succ_pkts_history: {self._pkt_succ_history}")
+            raise ValueError(f"Unexpected value for _current_success: {self._current_success}")
 
     def _negative_delay_reward(self):
         """
@@ -356,23 +350,21 @@ class AdAmcPacketV0(Env):
         -------
         reward : float
         """
-        last_succ = self._pkt_succ_history[-1]
-        last_delay = self._pkt_delay_history[-1]
 
-        assert last_delay is not None, "Last delay is None"
+        assert self._current_pkt_delay is not None, "Last delay is None"
 
-        if last_succ == 1:
+        if self._current_success == 1:
             # Packet sent successfully transmitted
-            return -1 * last_delay
-        elif last_succ == 2:
+            return -1 * self._current_pkt_delay
+        elif self._current_success == 2:
             # Retransmissions are just transitory
             return 0
-        elif last_succ == 0:
+        elif self._current_success == 0:
             # Failed transmissions should be discouraged
             alpha = 2
-            return -alpha * last_delay
+            return -alpha * self._current_pkt_delay
         else:
-            raise ValueError(f"Unexpected value for _succ_pkts_history: {self._pkt_succ_history}")
+            raise ValueError(f"Unexpected value for _current_success: {self._current_success}")
 
     def _is_done(self):
         """
@@ -403,5 +395,4 @@ class AdAmcPacketV0(Env):
 # Simple test
 if __name__ == "__main__":
     env = AdAmcPacketV0("scenarios_v2", 5e-3)
-    env.initialize()
     env.step(1)
