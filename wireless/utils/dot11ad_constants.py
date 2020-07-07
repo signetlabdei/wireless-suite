@@ -21,10 +21,26 @@ T_HEADER = 2 * 512 * Tc  # header duration (SC PHY) [s]
 F_CCP = 1760e6  # control PHY chip rate [Hz]
 T_CCP = 1 / F_CCP  # control PHY chip time [s]
 T_STF_CP = 50 * Tseq  # control PHY short training field duration [s]
-T_CE_CP = 9 * Tseq  # control PHY channel estimation field duration
+T_CE_CP = 9 * Tseq  # control PHY channel estimation field duration [s]
 
 
 def get_T_Data(length, mcs):
+    """
+    Get the parameter T_{Data} as described in Table 21-4 of the 802.11ad-2012 standard.
+
+    It refers to the time it takes to send the payload with the given MCS.
+
+    Parameters
+    ----------
+    length : int
+        The length of the payload [octets]
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12)
+
+    Returns
+    -------
+    float : the time it takes to send the payload [s]
+    """
     N_BLKS = get_N_BLKS(length, mcs)
     T_Data = (N_BLKS * 512 + 64) * Tc
     return T_Data
@@ -36,8 +52,33 @@ N_CBPB = {'BPSK': 448,
           '16QAM': 1792}
 
 
+# Table 21-10 -- Modulation and coding scheme for the control PHY
 # Table 21-23 -- Zero filling for SC BRP packets
 def get_mcs_params(mcs):
+    """
+    Get all the parameters for the given MCS.
+
+    Parameters
+    ----------
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12)
+
+    Returns
+    -------
+    dict : mcs_params
+        'modulation' : str
+            ['BPSK', 'QPSK', '16QAM']
+        'N_CBPB' : int
+            Number of coded bits per symbol block
+        'N_CBPS' : int
+            Number of coded bits per symbol
+        'rho' : int
+            Repetitions
+        'R' : float
+            Code rate
+        'data_rate' : float
+            Nominal PHY data rate
+    """
     assert 0 <= mcs <= 12, f"Only Control and SC PHY are supported. MCS{mcs} is not a valid MCS."
     mcs_params = {}
 
@@ -114,20 +155,38 @@ def get_mcs_params(mcs):
     return mcs_params
 
 
-# Table 21-32 -- DMG PHY characteristics
+# Table 21-31 -- DMG PHY characteristics
 aSIFSTime = 3e-6  # [s]
 aDataPreambleLength = 1891e-9  # [s]
 aControlPHYPreambleLength = 4291e-9  # [s]
 aSlotTime = 5e-6  # [s]
 aCWmin = 15
 aCWmax = 1023
-aPSDUMaxLength = 262143 * 8  # 256 kB - 1 B
+aBRPminSCblocks = 18
+aBRPTRNBlock = 4992
+aSCGILength = 64
+aSCBlockSize = 512
+aPSDUMaxLength = 262143 * 8  # 256 kB - 1 B [b]
 
 # 21.6.3.2.3.3 LDPC encoding process
 L_CW = 672  # LDPC codeword length
 
 
 def get_N_BLKS(length, mcs):
+    """
+    Get the number of SC PHY symbol blocks for the given length and MCS
+
+    Parameters
+    ----------
+    length : int
+        The length of the payload [octets]
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12)
+
+    Returns
+    -------
+    int : the number of SC PHY symbol blocks
+    """
     mcs_params = get_mcs_params(mcs)
     N_CW = get_N_CW(length, mcs)
     N_BLKS = math.ceil((N_CW * L_CW) / mcs_params['N_CBPB'])
@@ -135,23 +194,61 @@ def get_N_BLKS(length, mcs):
 
 
 def get_N_CW(length, mcs):
+    """
+    Get the number of LDPC codewords for SC PHY.
+
+    Parameters
+    ----------
+    length : int
+        The length of the payload [octets]
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12)
+
+    Returns
+    -------
+    int : the number of LDPC codewords
+    """
     mcs_params = get_mcs_params(mcs)
-    N_CW = math.ceil((length / 8) / (L_CW / mcs_params['rho'] * mcs_params['R']))
+    N_CW = math.ceil((length * 8) / (L_CW / mcs_params['rho'] * mcs_params['R']))
     return N_CW
 
 
 # 21.12.3 TXTIME calculation
-def get_TXTIME(length, mcs):
+def get_TXTIME(length, mcs, N_TRN=0):
+    """
+    Get the value for the TXTIME parameter returned by the PLME-TXTIME.confirm primitive.
+
+    It is equal to the total transmission time of a packet, including preamble, header, data, and TRN field.
+
+    Parameters
+    ----------
+    length : int
+        The length of the payload [octets]
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12)
+    N_TRN : int
+        The training length field
+
+    Returns
+    -------
+    float : the transmission time for a packet [s]
+    """
     assert 0 <= mcs <= 12, f"Only Control and SC PHY are supported. MCS{mcs} is not a valid MCS."
+
+    T_TRN_Unit = aBRPTRNBlock * Tc
 
     if mcs == 0:
         n_cw = get_N_CW(length, mcs)
         t_header_data = (11 * 8 + (length - 6) * 8 + n_cw * 168) * Tc * 32
-        return T_STF_CP + T_CE_CP + t_header_data
+        return T_STF_CP + T_CE_CP + t_header_data + N_TRN * T_TRN_Unit
 
     else:
         t_data = get_T_Data(length, mcs)
-        return T_STF + T_CE + T_HEADER + t_data
+        if N_TRN == 0:
+            return T_STF + T_CE + T_HEADER + t_data
+        else:
+            t_min = (aBRPminSCblocks * aSCBlockSize + aSCGILength) * Tc
+            return T_STF + T_CE + T_HEADER + max(t_data, t_min) + N_TRN * T_TRN_Unit
 
 
 ###############
@@ -178,7 +275,28 @@ DIFS = aSIFSTime + 2 * aSlotTime
 
 
 # Figure 10-5 -- RTS/CTS/data/Ack and NAV setting
-def get_total_tx_time(length, mcs, do_rts_cts=False):
+def get_total_tx_time(length_b, mcs, do_rts_cts=False):
+    """
+    Get the total transmission time for a packet.
+
+    It also included the BlockACK, the Inter-Frame Spaces (IFSs), and, if required, the RTS/DMG CTS.
+
+    Parameters
+    ----------
+    length_b : int
+        The length of the payload [b]
+    mcs : int
+        The MCS used. Only Control and SC PHY from the 802.11ad-2012 are supported (0 <= mcs <= 12).
+    do_rts_cts : bool
+        Flag to include the RTS/DMG CTS if True.
+
+    Returns
+    -------
+    float : the total transmission time for a packet [s]
+    """
+    # PSDU length is assumed to be in octets by the standard, but it is passed in bits from the simulator
+    length_o = math.ceil(length_b / 8)
+
     if do_rts_cts:
         t_rts = get_TXTIME(rts_length, mcs=0)
         t_dmg_cts = get_TXTIME(dmg_cts_length, mcs=0)
@@ -186,7 +304,7 @@ def get_total_tx_time(length, mcs, do_rts_cts=False):
     else:
         t_rts_cts = 0
 
-    t_data = get_TXTIME(length, mcs)
+    t_data = get_TXTIME(length_o, mcs)
     t_ack = get_TXTIME(blockack_length, mcs=0)
 
     return t_rts_cts + t_data + aSIFSTime + t_ack + DIFS
