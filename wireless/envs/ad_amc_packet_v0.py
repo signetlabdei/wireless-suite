@@ -20,7 +20,7 @@ class AdAmcPacketV0(Env):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
     def __init__(self, campaign, net_timestep, scenarios_list=None, dmg_path="../../dmg_files/", obs_duration=1,
-                 history_length=5, n_mcs=13, packet_size=dot11ad_constants.aPSDUMaxLength, harq_retx=2,
+                 history_length=5, n_mcs=13, packet_size=dot11ad_constants.maxAmsduSize, harq_retx=2,
                  reward_type="rx_bits"):
         """
         Initialize the environment.
