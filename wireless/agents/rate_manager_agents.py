@@ -336,12 +336,12 @@ class ArfAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][-1]
+        success = state["pkt_succ"]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
 
-        mcs = state["mcs"][-1]
+        mcs = state["mcs"]
 
         if success == 1:
             # If transmission is successful
@@ -399,12 +399,12 @@ class AarfAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][-1]
+        success = state["pkt_succ"]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
 
-        mcs = state["mcs"][-1]
+        mcs = state["mcs"]
 
         if success == 1:
             # If transmission is successful
@@ -475,7 +475,7 @@ class OnoeAgent:
         -------
         mcs : int
         """
-        success = state["pkt_succ"][-1]
+        success = state["pkt_succ"]
         if success is None:
             # Initialize with highest MCS
             return self._max_mcs
@@ -530,22 +530,27 @@ class PredictiveTargetBerAgent:
     This agent computes the MCS based on a target BER and a prediction of the next packet's SNR
     """
 
-    def __init__(self, action_space, error_model, prediction_func, target_ber=1e-6):
+    def __init__(self, action_space, error_model, history_length, prediction_func, target_ber=1e-6):
         self._max_mcs = action_space.n - 1
         self._error_model = error_model
         self._prediction_func = prediction_func
         self._target_ber = target_ber
 
+        assert history_length > 0, "history_length must be strictly positive"
+        self._snr_history = [None] * history_length
+        self._time_history = [None] * history_length
+
     def act(self, state, info=None):
+        # Update internal history
+        self._snr_history = self._snr_history[1:] + [state["snr"]]
+        self._time_history = self._time_history[1:] + [state["time"]]
+
+        # Remove leaning None's at the beginning of the observation
+        times = [t for s, t in zip(self._snr_history, self._time_history) if s is not None]
+        snrs = [s for s in self._snr_history if s is not None]
+
         # Predict SNR
-        # Latest event is in [-1]
         current_time = info["current_time"]
-        times = state["time"]
-        snrs = state["snr"]
-
-        times = [t for s, t in zip(snrs, times) if s is not None]  # Remove leading None's
-        snrs = [s for s in snrs if s is not None]  # Remove leading None's
-
         predicted_snr = self._prediction_func(times, snrs, current_time)
 
         bers = [self._error_model.get_ber(predicted_snr, mcs)
@@ -556,4 +561,5 @@ class PredictiveTargetBerAgent:
             # If no valid MCS: return the lowest one
             return 0
         else:
+            # Return the highest valid MCS
             return valid_mcs_list[-1]

@@ -50,24 +50,24 @@ def main(env, agent):
 
         state, reward, done, info = env.step(action)
 
-        if state["pkt_retx"][-1] == 0:
+        if state["pkt_retx"] == 0:
             # If retx == 0: new packet, irrespective of its success
             tot_sent_pkts += 1
             tot_mb_generated += info["pkt_size"] / 1e6
 
         tot_pkts += 1
 
-        if state["pkt_succ"][-1] == 1:
+        if state["pkt_succ"] == 1:
             tot_rx_pkts += 1
             tot_mb_rx += info["pkt_size"] / 1e6
-            rx_pkts_retx.append(state["pkt_retx"][-1])
-            rx_pkts_delay.append(state["pkt_delay"][-1])
+            rx_pkts_retx.append(state["pkt_retx"])
+            rx_pkts_delay.append(state["pkt_delay"])
 
         reward_t.append(reward)
         time.append(info["current_time"])
-        mcs_t.append(state["mcs"][-1])
-        retx_t.append(state["pkt_retx"][-1])
-        delay_t.append(state["pkt_delay"][-1])
+        mcs_t.append(state["mcs"])
+        retx_t.append(state["pkt_retx"])
+        delay_t.append(state["pkt_delay"])
 
     env.close()
 
@@ -133,11 +133,12 @@ if __name__ == '__main__':
     assert len(SCENARIOS_LIST) == 1, "Exactly 1 scenario should be evaluated with this script"
 
     environment = gym.make("AdAmcPacket-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST,
-                           obs_duration=OBS_DURATION, history_length=HISTORY_LENGTH, net_timestep=NET_TIMESTEP,
-                           harq_retx=HARQ_RETX, reward_type=REWARD_TYPE)
+                           obs_duration=OBS_DURATION, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX,
+                           reward_type=REWARD_TYPE)
 
     main(environment, rate_manager_agents.PredictiveTargetBerAgent(action_space=environment.action_space,
                                                                    error_model=environment.error_model,
+                                                                   history_length=HISTORY_LENGTH,
                                                                    prediction_func=lambda t, snr, t_next:
                                                                    misc.predict_snr(t, snr, t_next,
                                                                                     kind="previous"),
