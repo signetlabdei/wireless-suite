@@ -307,7 +307,7 @@ class PredictiveTargetBerAgent:
         self._snr_history = [None] * history_length
         self._time_history = [None] * history_length
 
-    def act(self, state, info=None):
+    def act(self, state, info):
         # Update internal history
         self._snr_history = self._snr_history[1:] + [state["snr"]]
         self._time_history = self._time_history[1:] + [state["time"]]
