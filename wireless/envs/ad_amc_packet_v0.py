@@ -131,6 +131,10 @@ class AdAmcPacketV0(Env):
     def scenario_duration(self):
         return self._scenario_duration
 
+    @property
+    def packet_size(self):
+        return self._packet_size
+
     # Public methods
     def reset(self):
         """

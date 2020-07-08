@@ -146,3 +146,5 @@ if __name__ == '__main__':
     main(environment, rate_manager_agents.ArfAgent(environment.action_space))
     main(environment, rate_manager_agents.AarfAgent(environment.action_space))
     main(environment, rate_manager_agents.OnoeAgent(environment.action_space))
+    main(environment, rate_manager_agents.RraaAgent(action_space=environment.action_space,
+                                                    target_pkt_size=environment.packet_size))
