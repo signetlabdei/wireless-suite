@@ -2,7 +2,8 @@
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
 import numpy as np
-from wireless.utils import misc
+import math
+from wireless.utils import misc, dot11ad_constants
 
 
 class ConstantRateAgent:
@@ -330,3 +331,112 @@ class PredictiveTargetBerAgent:
         else:
             # Return the highest valid MCS
             return valid_mcs_list[-1]
+
+
+class RraaAgent:
+    """
+    This agent implements the Robust Rate Adaptation Algorithm (RRAA) for link rate adaptation.
+    The reference paper is
+    Wong, Starsky & Lu, Songwu & Yang, H. & Bharghavan, Vaduvur. (2006). Robust rate adaptation for 802.11 wireless
+    networks. Proceedings of the Annual International Conference on Mobile Computing and Networking, MOBICOM. 2006.
+    pp. 146-157. 10.1145/1161089.1161107.
+
+    NOTE: Only the loss estimation and the rate change are implemented. The A-RTS filter has been excluded from this
+    first implementation.
+    NOTE: The agent is intended to be used with AdAmcPacket envs.
+    """
+
+    def __init__(self, action_space, target_pkt_size, alpha=1.25, beta=2):
+        self._max_mcs = action_space.n - 1
+        self._target_pkt_size = target_pkt_size
+        self._alpha = alpha
+        self._beta = beta
+
+        # Algorithm parameters (described in the paper)
+        self._critical_loss_ratio = [None] * (self._max_mcs + 1)
+        self._p_ori = [0] * (self._max_mcs + 1)  # Opportunistic Rate Increase threshold
+        self._p_mtl = [1] * (self._max_mcs + 1)  # Maximum Tolerable Loss threshold
+        self._ewnd = [80] * (self._max_mcs + 1)  # Estimation WiNDow
+
+        # Algorithm counters
+        self._lost_frames_list = []  # list of boolean: True=lost frame, False=success frame
+        self._mcs = self._max_mcs  # initialize with max MCS
+
+        self._setup_rraa_parameters()
+
+    def act(self, state, info=None):
+        # Append new packet lost to list
+        self._lost_frames_list.append(state["pkt_succ"] != 1)
+        lost_frames = self._lost_frames_list.count(True)
+        tx_frames = len(self._lost_frames_list)
+
+        assert tx_frames <= self._ewnd[self._mcs], "Something went wrong with the _lost_frames_list"
+
+        if tx_frames == self._ewnd[self._mcs]:
+            # Reached the end of the window
+            p = lost_frames / tx_frames
+
+            # Check if change of MCS is needed
+            if p > self._p_mtl[self._mcs]:
+                self._update_mcs(self._mcs - 1)
+            elif p < self._p_ori[self._mcs]:
+                self._update_mcs(self._mcs + 1)
+            else:
+                self._update_mcs(self._mcs)
+
+        else:
+            # Optimizing responsiveness
+            # Best case: assume the remaining packets to be all received
+            p = lost_frames / self._ewnd[self._mcs]
+            if p > self._p_mtl[self._mcs]:
+                self._update_mcs(self._mcs - 1)
+
+            # Worst case: assume the remaining packets to be all lost
+            pkts_left = self._ewnd[self._mcs] - tx_frames
+            p = (lost_frames + pkts_left) / self._ewnd[self._mcs]
+            if p < self._p_ori[self._mcs]:
+                self._update_mcs(self._mcs + 1)
+
+        return self._mcs
+
+    def _setup_rraa_parameters(self):
+        # Compute critical loss ration
+        tx_time = [dot11ad_constants.get_total_tx_time(self._target_pkt_size, mcs)
+                   for mcs in range(self._max_mcs + 1)]
+
+        for mcs in range(1, self._max_mcs + 1):
+            # [0]: None
+            self._critical_loss_ratio[mcs] = 1 - tx_time[mcs] / tx_time[mcs - 1]
+            # [0]: 1
+            self._p_mtl[mcs] = self._alpha * self._critical_loss_ratio[mcs]
+        for mcs in range(self._max_mcs):
+            # [max_mcs]: 0
+            self._p_ori[mcs] = self._p_mtl[mcs + 1] / self._beta
+            # [max_mcs]: 80
+            self._ewnd[mcs] = math.ceil(1 / self._p_ori[mcs])
+
+        assert len(self._critical_loss_ratio) == self._max_mcs + 1, 'RRAA parameters are inconsistent'
+        assert len(self._p_ori) == self._max_mcs + 1, 'RRAA parameters are inconsistent'
+        assert len(self._p_mtl) == self._max_mcs + 1, 'RRAA parameters are inconsistent'
+        assert len(self._ewnd) == self._max_mcs + 1, 'RRAA parameters are inconsistent'
+
+    def _update_mcs(self, new_mcs):
+        """
+        Try to update the MCS, clipping it between the minimum and maximum accepted value.
+
+        As described in the paper, if the MCS is updated, the counters are reset.
+        If not, the window slides forward.
+
+        Parameters
+        ----------
+        new_mcs : int
+        """
+        clipped_mcs = max(0, min(self._max_mcs, new_mcs))
+
+        if clipped_mcs != self._mcs:
+            self._mcs = clipped_mcs
+            # Reset counters
+            self._lost_frames_list = []
+        else:
+            # Slide window
+            self._lost_frames_list = self._lost_frames_list[1:]
