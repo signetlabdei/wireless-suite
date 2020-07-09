@@ -70,7 +70,7 @@ class AdAmcPacketV0(Env):
         self._current_pkt_delay = 0  # The delay of the current packet [s]
         self._current_mcs = None  # The MCS used for the current packet
 
-        self._error_model = DmgErrorModel(self._dmg_path + "/error_model/LookupTable_1458.txt",
+        self._error_model = DmgErrorModel(os.path.join(self._dmg_path, "error_model/LookupTable_1458.txt"),
                                           self._n_mcs)  # Create DMG error model
         self._qd_scenarios_path = os.path.join(self._dmg_path, "qd_scenarios", self._campaign)
 
@@ -166,12 +166,12 @@ class AdAmcPacketV0(Env):
         self._current_snr = self._get_snr()
 
         # Create initial observation
-        obs = {"time": self._current_time,
-               "snr": self._current_snr,
-               "pkt_succ": self._current_success,
-               "pkt_retx": self._current_retx,
-               "pkt_delay": self._current_pkt_delay,
-               "mcs": self._current_mcs}
+        obs = {"time": None,
+               "snr": None,
+               "pkt_succ": None,
+               "pkt_retx": None,
+               "pkt_delay": None,
+               "mcs": None}
 
         return obs, self._get_info()  # TODO: can we also output the info?
 
