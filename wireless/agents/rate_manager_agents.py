@@ -329,9 +329,9 @@ class ArfAgent:
         ----------
         state : dict
             "mcs" : int
-                MCS used for the previous packet(s)
+                MCS used for the previous packet
             "pkt_succ" : int
-                Last packet(s) were successful (1) or not. If None, the communication just started.
+                Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
         info : dict
             Not used, kept to maintain the same signature for all agents.
 
@@ -392,9 +392,9 @@ class AarfAgent:
         ----------
         state : dict
             "mcs" : int
-                MCS used for the previous packet(s)
+                MCS used for the previous packet
             "pkt_succ" : int
-                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+                Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
         info : dict
             Not used, kept to maintain the same signature for all agents.
 
@@ -469,7 +469,7 @@ class OnoeAgent:
         ----------
         state : dict
             "pkt_succ" : int
-                Last packet(s) were successful (1) or not (0). If None, the communication just started.
+                Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
         info : dict
             "current_time" : float
                 The absolute time when the last packet was sent.
@@ -544,6 +544,24 @@ class PredictiveTargetBerAgent:
         self._time_history = [None] * history_length
 
     def act(self, state, info):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "snr" : float
+                The SNR probed by the previous packet [dB]
+            "time" : float
+                The departure time of the previous packet [s]
+        info : dict
+            "current_time" : float
+                The current time, when the next packet is being sent [s]
+
+        Returns
+        -------
+        mcs : int
+        """
         # Update internal history
         self._snr_history = self._snr_history[1:] + [state["snr"]]
         self._time_history = self._time_history[1:] + [state["time"]]
@@ -600,6 +618,21 @@ class RraaAgent:
         self._setup_rraa_parameters()
 
     def act(self, state, info=None):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "pkt_succ" : int
+                Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
+        info : dict
+            Not used, kept to maintain the same signature for all agents.
+
+        Returns
+        -------
+        mcs : int
+        """
         # Append new packet lost to list
         self._lost_frames_list.append(state["pkt_succ"] != 1)
         lost_frames = self._lost_frames_list.count(True)
@@ -689,6 +722,7 @@ class HrcAgent:
     NOTE: The agent is intended to be used with AdAmcPacket envs.
     NOTE: The paper discusses and shows measurements regarding SNR measurements being symmetric between TX and RX
     NOTE: The max number of retries of the chipset used for the experiment is set to 10 by default
+    NOTE: Some procedures/initialization were not described or were unclear
     """
 
     def __init__(self, action_space, error_model, target_pkt_size, a=0.1, b=1, c=3, d=1, e=10, f=5, window=1,
@@ -726,6 +760,28 @@ class HrcAgent:
         self._create_ssia_tbl()
 
     def act(self, state, info):
+        """
+        Perform action given the state.
+
+        Parameters
+        ----------
+        state : dict
+            "mcs" : int
+                MCS used for the previous packet
+            "pkt_succ" : int
+                Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
+            "snr" : float
+                The SNR probed by the previous packet [dB]
+            "time" : float
+                The departure time of the previous packet [s]
+        info : dict
+            "current_time" : float
+                The current time, when the next packet is being sent [s]
+
+        Returns
+        -------
+        mcs : int
+        """
         # Collect window stats
         if state["mcs"] is not None:
             # MCS is None for the first packet
