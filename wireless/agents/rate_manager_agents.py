@@ -2,6 +2,7 @@
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
 import numpy as np
+import pandas as pd
 import math
 from wireless.utils import misc, dot11ad_constants
 
@@ -440,3 +441,228 @@ class RraaAgent:
         else:
             # Slide window
             self._lost_frames_list = self._lost_frames_list[1:]
+
+
+class HrcAgent:
+    """
+    This agent implements the Hybrid Rate Control (HRC) algorithm for link rate adaptation.
+    The reference paper is
+    Ivaylo Haratcherev, Koen Langendoen, Reginald Lagendijk, and Henk Sips. 2004. Hybrid rate control for IEEE 802.11.
+    In Proceedings of the second international workshop on Mobility management & wireless access protocols
+    (MobiWac ’04). Association for Computing Machinery, New York, NY, USA, 10–18.
+    DOI:https://doi.org/10.1145/1023783.1023787
+
+    NOTE: The agent is intended to be used with AdAmcPacket envs.
+    NOTE: The paper discusses and shows measurements regarding SNR measurements being symmetric between TX and RX
+    NOTE: The max number of retries of the chipset used for the experiment is set to 10 by default
+    """
+
+    def __init__(self, action_space, error_model, target_pkt_size, a=0.1, b=1, c=3, d=1, e=10, f=5, window=1,
+                 ssia_diff_thresh=2):
+        self._max_mcs = action_space.n - 1
+        self._error_model = error_model
+        self._target_pkt_size = target_pkt_size
+        self._a = a
+        self._b = b
+        self._c = c
+        self._d = d
+        self._e = e
+        self._f = f
+        self._window = window
+        self._ssia_diff_thresh = ssia_diff_thresh  # No value was ever mentioned in the paper [dB/ms]
+
+        # Algorithm variables (described in the paper)
+        self._window_start = None
+        self._rs_opt = self._max_mcs  # Start from the max MCS
+        self._may_upscale = None
+        self._try_upscale = None
+        self._rs_lo_bound = None
+        self._rs_up_bound = None
+        self._ssia_tbl = None
+
+        # Algorithm counters
+        self._ssia_history = [None] * 3  # History of the last 3 Signal Strength Indicator of the Acknowledged frames
+        self._ssia_time = [None] * 3  # History of the last 3 SSIA acquisition times
+        self._pkt_succ_window = np.array([], dtype=np.int)  # Success code for packets in a window
+        self._mcs_used_window = np.array([], dtype=np.int)  # MCS used for packets in a window
+        self._ssia_window = np.array([])  # SSIA for the packets in a window
+
+        self._rs_curr = self._max_mcs  # Start from max MCS
+
+        self._create_ssia_tbl()
+
+    def act(self, state, info):
+        # Collect window stats
+        if state["mcs"] is not None:
+            # MCS is None for the first packet
+            self._pkt_succ_window = np.append(self._pkt_succ_window, state["pkt_succ"])
+            self._mcs_used_window = np.append(self._mcs_used_window, state["mcs"])
+            self._ssia_window = np.append(self._ssia_window, state["snr"])
+
+        # Check SSIA dynamics
+        curr_ssia = state["snr"]  # TODO should retx/failed packet be taken into account?
+        self._ssia_history = self._ssia_history[1:] + [curr_ssia]
+        self._ssia_time = self._ssia_time[1:] + [state["time"]]
+
+        is_dynamic = self._check_is_dynamic()
+        self._calculate_bounds(curr_ssia, is_dynamic)
+
+        # roughly corresponds to the function for_each_packet() described in the paper
+        if self._window_start is None or info["current_time"] - self._window_start > self._window:
+            self._once_per_decision_window(info["current_time"])
+
+        if self._try_upscale:
+            if state["pkt_succ"] == 1:
+                self._rs_opt = self._rs_curr
+            else:
+                self._may_upscale = False
+            self._try_upscale = False
+
+        self._rs_curr = self._probe_or_not()
+
+        if self._rs_curr > self._rs_up_bound:
+            self._rs_curr = self._rs_up_bound
+        elif self._rs_curr < self._rs_lo_bound and self._may_upscale:
+            self._rs_curr = self._rs_lo_bound
+            self._try_upscale = True
+
+        return self._rs_curr
+
+    def _create_ssia_tbl(self):
+        # Initialize the SSIA table
+        # As the paper does not say how to initialize it, the following heuristic has been created
+        # For a given MCS, the low threshold is based on the minimum SNR that ensures at least 10% of the achievable
+        # throughput. High and dynamic low thresholds are computed similarly to the table update function
+        snr = np.arange(-14, 30, 0.25)
+        pkt_size = self._target_pkt_size
+
+        lo_thld = np.zeros((self._max_mcs + 1,))
+        for mcs in range(self._max_mcs + 1):
+            tx_time = dot11ad_constants.get_total_tx_time(pkt_size, mcs)
+            psr = np.array([self._error_model.get_packet_success_rate(s, mcs, pkt_size) for s in snr])
+            thr = (pkt_size / tx_time) * psr
+            # find the lowest SNR that ensures at least 10% of the achievable throughput
+            lo_thld_idx = np.nonzero(thr > (thr[-1] * 0.1))[0][0]
+            lo_thld[mcs] = snr[lo_thld_idx]
+
+        self._ssia_tbl = pd.DataFrame({"lo_thld": lo_thld,
+                                       "hi_thld": lo_thld + self._e,
+                                       "lo_thld_dyn": lo_thld + self._f})
+        self._fix_ssia_tbl()
+
+    def _once_per_decision_window(self, current_time):
+        if self._window_start is None:
+            self._window_start = current_time
+        else:
+            self._update_ssia_tbl()
+            # Allow possible jumps of multiple windows in extreme cases
+            while current_time - self._window_start > self._window:
+                self._window_start += self._window
+
+        self._rs_opt = self._find_opt_rate_by_status()
+        self._may_upscale = True
+        self._pkt_succ_window = np.array([], dtype=np.int)
+        self._mcs_used_window = np.array([], dtype=np.int)
+        self._ssia_window = np.array([])
+
+    def _find_opt_rate_by_status(self):
+        if len(self._pkt_succ_window) == 0:
+            # No data on the previous window: keep the same MCS
+            return self._rs_opt
+
+        else:
+            mcs_used = np.unique(self._mcs_used_window)
+            thr = np.zeros((self._max_mcs + 1,))
+            for mcs in mcs_used:
+                mask = self._mcs_used_window == mcs
+                # compute empirical throughput
+                empirical_psr = np.count_nonzero(self._pkt_succ_window[mask] == 1) / len(self._pkt_succ_window[mask])
+                tx_time = dot11ad_constants.get_total_tx_time(self._target_pkt_size, mcs)
+                thr[mcs] = self._target_pkt_size / tx_time * empirical_psr
+
+            return np.argmax(thr)
+
+    def _probe_or_not(self):
+        p = np.random.rand()
+        if p > 0.1:
+            return self._rs_opt
+        # 10% of the data is sent at the adjacent rates to the current optimal
+        if p < 0.05:
+            return max(0, self._rs_opt - 1)
+        return min(self._max_mcs, self._rs_opt + 1)
+
+    def _calculate_bounds(self, curr_ssia, is_dyn):
+        if curr_ssia is None:
+            # First packet, keep large bounds (not described in the paper)
+            self._rs_lo_bound = 0
+            self._rs_up_bound = self._max_mcs
+            return
+
+        if is_dyn:
+            lo_thld_col = "lo_thld_dyn"
+        else:
+            lo_thld_col = "lo_thld"
+
+        # Find highest MCS which respects the lower bound
+        valid_mcs = np.nonzero(curr_ssia >= self._ssia_tbl[lo_thld_col].to_numpy())[0]
+        if len(valid_mcs) > 0:
+            self._rs_lo_bound = valid_mcs[-1]
+        else:
+            # curr_ssia too small: use lowest MCS anyway
+            self._rs_lo_bound = 0
+
+        # Find lowest MCS which respects the upper bound
+        valid_mcs = np.nonzero(curr_ssia <= self._ssia_tbl["hi_thld"].to_numpy())[0]
+        if len(valid_mcs) > 0:
+            self._rs_up_bound = valid_mcs[0]
+        else:
+            # curr_ssia too large: use highest MCS
+            self._rs_up_bound = self._max_mcs
+
+    def _update_ssia_tbl(self):
+        mcs_used = np.unique(self._mcs_used_window)
+        for mcs in mcs_used:
+            lo_thld_old = self._ssia_tbl.iloc[mcs]["lo_thld"]
+            pkt_succ = self._pkt_succ_window[self._mcs_used_window == mcs]
+
+            n_retx = np.sum(pkt_succ == 2)
+            n_good = np.sum(pkt_succ == 1)
+            fer = n_retx / (n_retx + n_good) * 100
+
+            if fer > 5:
+                lo_thld_new = lo_thld_old + (fer - 5) * self._a + self._b
+            elif fer < 1 and np.mean(self._ssia_window[self._mcs_used_window == mcs]) < lo_thld_old:
+                lo_thld_new = lo_thld_old - (1 - fer) * self._c + self._d
+            else:
+                lo_thld_new = lo_thld_old
+
+            self._update_thlds(mcs, lo_thld_new)
+
+        self._fix_ssia_tbl()
+
+    def _check_is_dynamic(self):
+        if any([ssia is None for ssia in self._ssia_history]):
+            # Assume non-dynamic channel at the beginning
+            return False
+
+        # NOTE: it is extremely unlikely that both differences will be larger than 0 with the current RT timestep
+        diff = np.diff(self._ssia_history) / (np.diff(self._ssia_time) * 1e3)  # [dB/ms]
+
+        if np.prod(diff) > 0 and np.all(diff > self._ssia_diff_thresh):
+            # "If both differences have the same sign, and both exceed a certain threshold, then the dynamic low
+            # threshold will be used, since conditions are changing fast and consistently."
+            return True
+        else:
+            return False
+
+    def _update_thlds(self, mcs, lo_thld):
+        self._ssia_tbl.iloc[mcs]["lo_thld"] = lo_thld
+        self._ssia_tbl.iloc[mcs]["hi_thld"] = lo_thld + self._e
+        self._ssia_tbl.iloc[mcs]["lo_thld_dyn"] = lo_thld + self._f
+
+    def _fix_ssia_tbl(self):
+        # fix ranges of unused MCSs to make them monotonically increasing
+        for mcs in range(1, self._max_mcs + 1):
+            prev_lo_thld = self._ssia_tbl.iloc[mcs - 1]["lo_thld"]
+            if self._ssia_tbl.iloc[mcs]["lo_thld"] < prev_lo_thld:
+                self._update_thlds(mcs, prev_lo_thld)

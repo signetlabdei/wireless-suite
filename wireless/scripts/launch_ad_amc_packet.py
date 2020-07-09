@@ -145,6 +145,10 @@ if __name__ == '__main__':
                                                                    target_ber=1e-6))
     main(environment, rate_manager_agents.ArfAgent(environment.action_space))
     main(environment, rate_manager_agents.AarfAgent(environment.action_space))
-    main(environment, rate_manager_agents.OnoeAgent(environment.action_space))
+    main(environment, rate_manager_agents.OnoeAgent(environment.action_space,
+                                                    window=100e-3))
     main(environment, rate_manager_agents.RraaAgent(action_space=environment.action_space,
                                                     target_pkt_size=environment.packet_size))
+    main(environment, rate_manager_agents.HrcAgent(action_space=environment.action_space,
+                                                   error_model=environment.error_model,
+                                                   target_pkt_size=environment.packet_size))
