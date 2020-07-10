@@ -1,0 +1,4 @@
+#!/bin/bash
+for (( i = 0 ; i < 32 ; i++ )) ; do
+  sbatch blade_template.slurm
+done

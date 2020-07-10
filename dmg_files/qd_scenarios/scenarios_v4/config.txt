@@ -1,0 +1,64 @@
+processRatios
+   1
+
+saveHref
+   0
+
+bsAnt
+  Antenna with properties:
+
+                     M: 4
+                     N: 4
+                    dv: 0.5000
+                    dh: 0.5000
+    ElementPattern_lin: @(t,f)1
+                     P: 1
+                    Mg: 1
+                    Ng: 1
+                   dgv: 1
+                   dgh: 1
+
+utAnt
+  Antenna with properties:
+
+                     M: 1
+                     N: 4
+                    dv: 0.5000
+                    dh: 0.5000
+    ElementPattern_lin: @(t,f)1
+                     P: 1
+                    Mg: 1
+                    Ng: 1
+                   dgv: 1
+                   dgh: 1
+
+bsSectorDir
+     0
+
+bsDowntilt
+    1.5708
+
+utSectorDir
+     0
+
+utDowntilt
+    1.5708
+
+Ptx
+    20
+
+fc
+   6.0000e+10
+
+BW
+   2.1600e+09
+
+F
+    10
+
+dataDirection
+DL
+bfMode
+geometric
+bsInterfIdxs
+utInterfIdxs

@@ -1,7 +1,6 @@
 {
   "agent": {
-    "agent_type": "round robin",
-    "t_max": 65536,
-    "n_episodes": 16
+    "agent_type": "optimal agent",
+    "target_ber": 1e-6
   }
 }
