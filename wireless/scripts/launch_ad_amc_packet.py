@@ -13,7 +13,7 @@ SCENARIOS_LIST = ["Journal1Lroom_1.csv"]  # List of scenarios for the environmen
 HISTORY_LENGTH = 1  # The number of past SNR values to consider for the state
 NET_TIMESTEP = 5e-3  # The real network timestep [s]
 OBS_DURATION = None  # Observation duration [s]; If None, the whole scenario is the observation
-HARQ_RETX = 2  # The number of HARQ retransmission after the first transmission
+HARQ_RETX = 3  # The number of HARQ retransmission after the first transmission
 REWARD_TYPE = "rx_bits"
 
 
@@ -135,6 +135,8 @@ if __name__ == '__main__':
     environment = gym.make("AdAmcPacket-v0", campaign=CAMPAIGN, scenarios_list=SCENARIOS_LIST,
                            obs_duration=OBS_DURATION, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX,
                            reward_type=REWARD_TYPE)
+
+    main(environment, rate_manager_agents.MinstrelAgent(environment.action_space, environment.harq_retx))
 
     main(environment, rate_manager_agents.PredictiveTargetBerAgent(action_space=environment.action_space,
                                                                    error_model=environment.error_model,

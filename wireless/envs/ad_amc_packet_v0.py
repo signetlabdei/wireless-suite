@@ -135,6 +135,10 @@ class AdAmcPacketV0(Env):
     def packet_size(self):
         return self._packet_size
 
+    @property
+    def harq_retx(self):
+        return self._harq_retx
+
     # Public methods
     def reset(self):
         """

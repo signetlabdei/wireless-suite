@@ -528,6 +528,110 @@ class OnoeAgent:
             self._pkt_fail_count += 1
 
 
+class MinstrelAgent:
+    """
+    This agent implements the Minstrel link adaptation algorithm as described at:
+    https://wireless.wiki.kernel.org/en/developers/documentation/mac80211/ratecontrol/minstrel
+    """
+
+    def __init__(self, action_space, harq_retx, window=1e-1, ewma_weight=.25, lookaround_rate=0.1):
+        self.n_mcs = action_space.n
+        self.max_mcs = action_space.n - 1
+        self.window = window
+        self.ewma_weight = ewma_weight
+        self.lookaround_rate = lookaround_rate
+        self.tot_pkt_attempts = harq_retx + 1  # first transmission + retransmissions
+
+        assert self.tot_pkt_attempts % 4 == 0, "the total number of attempts must be a multiple of 4 (retry chain " \
+                                               "length) "
+
+        self.window_start = None
+        self.retry_window_start = None
+        self.pkt_stats = np.zeros((self.n_mcs, 2))  # 1st column: successful pkts; 2nd column: failed/retransmitted pkts
+        self.p_success = np.zeros((self.n_mcs,))  # p_success of each MCS
+        self.estimated_thr = np.zeros((self.n_mcs,))  # estimated throughput for each MCS
+        self.mcs_s = [mcs for mcs in range(self.n_mcs)]
+        self.retry_chain = [None] * 4  # Minstrel's retry chain consists of four MCSs
+        self.attempt_per_mcs = self.tot_pkt_attempts // 4
+        self.attempt_number = 1
+
+    def act(self, state, info):
+        success = state["pkt_succ"]
+
+        if success == 2:
+            # retransmission
+            self.attempt_number += 1
+        else:
+            # reset number of attempts for the next packet transmission
+            self.attempt_number = 1
+            # compute the retry chain for the next packet
+            self.retry_chain = self._get_retry_chain()
+
+        current_time = info["current_time"]
+        if self.window_start is None:
+            self.window_start = current_time
+        if self.retry_window_start is None:
+            self.retry_window_start = current_time
+
+        if current_time - self.window_start < self.window:
+            self._collect_stats(state["mcs"], success)
+        else:
+            self.window_start += self.window
+            # reset packet statistics
+            self._update_stats(info["pkt_size"])
+
+        assert self.attempt_number <= self.tot_pkt_attempts, f"Attempt number={self.attempt_number} exceeds the max " \
+                                                             f"number of attempts per packet: {self.tot_pkt_attempts}"
+        # Choose the MCS based on the attempt number and the retry chain
+        if self.attempt_number <= self.attempt_per_mcs:
+            selected_mcs = self.retry_chain[0]
+        elif self.attempt_number <= self.attempt_per_mcs * 2:
+            selected_mcs = self.retry_chain[1]
+        elif self.attempt_number <= self.attempt_per_mcs * 3:
+            selected_mcs = self.retry_chain[2]
+        elif self.attempt_number <= self.attempt_per_mcs * 4:
+            selected_mcs = self.retry_chain[3]
+        else:
+            raise ValueError(f"No MCS is available for attempt number={self.attempt_number}")
+        # print(f"attempt: {self.attempt_number}, with mcs={selected_mcs}")
+        return selected_mcs
+
+    def _get_retry_chain(self):
+        if np.random.rand() <= self.lookaround_rate:
+            # sampling transmission: pick-up random MCS (look around)
+            available_mcs_s = [mcs for mcs in self.mcs_s if mcs not in self.retry_chain]
+            random_mcs = np.random.choice(available_mcs_s)
+            if self.estimated_thr[random_mcs] >= np.amax(self.estimated_thr):
+                # first rate is the randomly selected MCS, best will be the second
+                return [random_mcs, np.argmax(self.estimated_thr), np.argmax(self.p_success), 0]
+            else:
+                # first rate is best, the randomly selected MCS will be the second
+                return [np.argmax(self.estimated_thr), random_mcs, np.argmax(self.p_success), 0]
+        else:
+            # normal transmission: exploit Minstrel's default retry chain
+            sorted_mcs_s = np.argsort(self.estimated_thr)
+            return [sorted_mcs_s[-1], sorted_mcs_s[-2], np.argmax(self.p_success), 0]
+
+    def _update_stats(self, pkt_size):
+        tot_pkts = self.pkt_stats[:, 0] + self.pkt_stats[:, 1]
+        pkt_size_bytes = pkt_size / 8
+        for mcs, tot in enumerate(tot_pkts):
+            if tot != 0:
+                new_p_success = self.pkt_stats[mcs][0] / tot
+                self.p_success[mcs] = self.p_success[mcs] * self.ewma_weight + new_p_success * (1.0 - self.ewma_weight)
+                self.estimated_thr[mcs] = self.p_success[mcs] * (pkt_size_bytes /
+                                                                 dot11ad_constants.get_TXTIME(pkt_size_bytes, mcs))
+
+        # reset stats
+        self.pkt_stats = np.zeros((self.n_mcs, 2))
+
+    def _collect_stats(self, mcs, success):
+        if success == 1:
+            self.pkt_stats[mcs, 0] += 1  # increment of 1 the # of packets successful with that MCS
+        else:
+            self.pkt_stats[mcs, 1] += 1  # increment of 1 the # of packets failed/retransmitted with that MCS
+
+
 class PredictiveTargetBerAgent:
     """
     This agent computes the MCS based on a target BER and a prediction of the next packet's SNR
