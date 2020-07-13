@@ -2,11 +2,10 @@
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
 import numpy as np
-import tensorflow as tf
-from wireless.utils import misc
-from wireless.utils.misc import get_mcs_data_rate
 import pandas as pd
 import math
+import tensorflow as tf
+from wireless.utils.misc import get_mcs_data_rate
 from wireless.utils import misc, dot11ad_constants
 
 

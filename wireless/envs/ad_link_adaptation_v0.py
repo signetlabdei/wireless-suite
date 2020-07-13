@@ -1,4 +1,3 @@
-        self.t += 1  # Update time step
 """
 © 2020, University of Padova, Department of Information Engineering, SIGNET Lab.
 """
@@ -140,12 +139,6 @@ class AdLinkAdaptationV0(Env):
         # Pick up a random new starting point in the SNR-vs-Time trace
         self.initial_timestep = self._get_initial_timestep()
         self.current_timestep = self.initial_timestep
-
-        return self._get_observation()
-
-        # TEMPORARILY consider the entire trace
-        self.initial_timestep = 0
-        self.current_timestep = 0
 
         return self._get_observation()
 

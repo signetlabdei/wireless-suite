@@ -6,9 +6,8 @@ SPDX-License-Identifier: BSD-3-Clause
 import os
 import pandas as pd
 import numpy as np
-from scipy import constants
 import math
-import numpy as np
+from scipy import constants
 from scipy.interpolate import interp1d
 
 
@@ -133,6 +132,7 @@ def generate_policy(q_table):
     policy = np.argmax(q_table, axis=1)
     value = np.amax(q_table, axis=1)
     return policy, value
+
 def get_timestep(time, timestep):
     """
     Get the timestep index given a time and a timestep duration.
