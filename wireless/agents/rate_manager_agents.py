@@ -162,31 +162,43 @@ class TargetBerAgent:
         return selected_mcs
 
 
-class OptimalAgent:
+class OptimalMaxThroughputAgent:
     """
-    This agent computes the best MCS based on the future SNR, i.e., the SNR at one timestep ahead with respect to the
-    current timestep.
-    The MCS is chosen to be the one that maximizes the total average number of received packets, hence its optimality.
+    Agent that maximixes the average throughput, using the info regarding the packet on which the action will be taken.
     """
 
-    def __init__(self, action_space, error_model, timestep, pkt_size):
-        self.action_space = action_space
-        self.error_model = error_model
-        self.timestep = timestep
-        self.pkt_size = pkt_size
+    def __init__(self, action_space, error_model):
+        self._max_mcs = action_space.n - 1
+        self._error_model = error_model
 
-    def act(self, snr):
-        rx_bits = np.zeros((self.action_space.n,))
-        for action_idx in range(self.action_space.n):
-            n_packets, last_pkt, pkt_size_list = misc.get_tx_pkt_size_list(action_idx, self.timestep, self.pkt_size)
-            pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, self.pkt_size)
-            last_pkt_psr = self.error_model.get_packet_success_rate(snr, action_idx, last_pkt)
+    def act(self, state, info):
+        """
+        Performs the optimal action given the info on the packet to be sent.
 
-            avg_rx_bits = self.pkt_size * pkt_psr * n_packets + last_pkt * last_pkt_psr
-            rx_bits[action_idx] = avg_rx_bits
+        Parameters
+        ----------
+        state : dict
+            Not used, kept to maintain the same signature for all agents.
+        info : dict
+            "next_pkt_size" : int
+                Size of the packet to be sent in [B]
+            "next_snr" : float
+                Noiseless SNR of the packet to be sent [dB]
 
-        selected_mcs = np.argmax(rx_bits)
-        return selected_mcs
+        Returns
+        -------
+        The optimal MCS to be used for the next packet.
+        """
+        if info["next_pkt_size"] is None:
+            return None
+
+        tot_tx_time = [dot11ad_constants.get_total_tx_time(info["next_pkt_size"], mcs)
+                       for mcs in range(self._max_mcs + 1)]
+        psr = [self._error_model.get_packet_success_rate(info["next_snr"], mcs, info["next_pkt_size"])
+               for mcs in range(self._max_mcs + 1)]
+        thr = [info["next_pkt_size"] / tx_time * p
+               for (tx_time, p) in zip(tot_tx_time, psr)]
+        return np.argmax(thr)
 
 
 class TabularAgent:
@@ -470,8 +482,8 @@ class OnoeAgent:
             "pkt_succ" : int
                 Last packet was successful (1), failed (0), or was retx'd (2). If None, the communication just started.
         info : dict
-            "current_time" : float
-                The absolute time when the last packet was sent.
+            "next_pkt_time" : float
+                The current time, i.e., the time when the next packet will be sent [s]
 
         Returns
         -------
@@ -482,7 +494,7 @@ class OnoeAgent:
             # Initialize with highest MCS
             return self._max_mcs
 
-        time = info["current_time"]
+        time = info["next_pkt_time"]
 
         if self._window_start is None:
             self._window_start = time
@@ -566,7 +578,7 @@ class MinstrelAgent:
             # compute the retry chain for the next packet
             self.retry_chain = self._get_retry_chain()
 
-        current_time = info["current_time"]
+        current_time = info["next_pkt_time"]
         if self.window_start is None:
             self.window_start = current_time
         if self.retry_window_start is None:
@@ -577,7 +589,7 @@ class MinstrelAgent:
         else:
             self.window_start += self.window
             # reset packet statistics
-            self._update_stats(info["pkt_size"])
+            self._update_stats(info["next_pkt_size"])
 
         assert self.attempt_number <= self.tot_pkt_attempts, f"Attempt number={self.attempt_number} exceeds the max " \
                                                              f"number of attempts per packet: {self.tot_pkt_attempts}"
@@ -658,7 +670,7 @@ class PredictiveTargetBerAgent:
             "time" : float
                 The departure time of the previous packet [s]
         info : dict
-            "current_time" : float
+            "next_pkt_time" : float
                 The current time, when the next packet is being sent [s]
 
         Returns
@@ -674,7 +686,7 @@ class PredictiveTargetBerAgent:
         snrs = [s for s in self._snr_history if s is not None]
 
         # Predict SNR
-        current_time = info["current_time"]
+        current_time = info["next_pkt_time"]
         predicted_snr = self._prediction_func(times, snrs, current_time)
 
         bers = [self._error_model.get_ber(predicted_snr, mcs)
@@ -878,7 +890,7 @@ class HrcAgent:
             "time" : float
                 The departure time of the previous packet [s]
         info : dict
-            "current_time" : float
+            "next_pkt_time" : float
                 The current time, when the next packet is being sent [s]
 
         Returns
@@ -901,8 +913,8 @@ class HrcAgent:
         self._calculate_bounds(curr_ssia, is_dynamic)
 
         # roughly corresponds to the function for_each_packet() described in the paper
-        if self._window_start is None or info["current_time"] - self._window_start > self._window:
-            self._once_per_decision_window(info["current_time"])
+        if self._window_start is None or info["next_pkt_time"] - self._window_start > self._window:
+            self._once_per_decision_window(info["next_pkt_time"])
 
         if self._try_upscale:
             if state["pkt_succ"] == 1:

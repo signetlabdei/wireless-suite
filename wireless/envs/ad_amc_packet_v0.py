@@ -97,6 +97,9 @@ class AdAmcPacketV0(Env):
         pkt_delay_space = spaces.Box(low=0, high=np.inf,
                                      shape=(1,),
                                      dtype=np.float32)
+        pkt_size_space = spaces.Box(low=0, high=np.inf,
+                                    shape=(1,),
+                                    dtype=np.int)
         mcs_space = spaces.Discrete(self._n_mcs)
 
         self._observation_space = spaces.Dict({"time": time_space,
@@ -104,6 +107,7 @@ class AdAmcPacketV0(Env):
                                                "pkt_succ": pkt_succ_space,
                                                "pkt_retx": pkt_retx_space,
                                                "pkt_delay": pkt_delay_space,
+                                               "pkt_size": pkt_size_space,
                                                "mcs": mcs_space})
         self._action_space = mcs_space
 
@@ -175,6 +179,7 @@ class AdAmcPacketV0(Env):
                "pkt_succ": None,
                "pkt_retx": None,
                "pkt_delay": None,
+               "pkt_size": None,
                "mcs": None}
 
         return obs, self._get_info()  # TODO: can we also output the info?
@@ -229,6 +234,8 @@ class AdAmcPacketV0(Env):
             return 0
 
     def _get_snr(self):
+        assert self._current_time <= self._scenario_duration, f"Current time ({self._current_time} s) is over the " \
+                                                              f"scenario duration ({self._scenario_duration} s)"
         timestep = misc.get_timestep(self._current_time, self._network_timestep)
         return self._scenario['SNR'].iloc[timestep]
 
@@ -277,6 +284,8 @@ class AdAmcPacketV0(Env):
             "pkt_delay" : float
                 Packet delay [s]. The delay includes the packet transmission time since different MCSs will
                 also affect the total packet delay. The delay is incremented at each retransmission.
+            "pkt_size" : int
+                The size of the packet sent during the transmission [b].
             "mcs" : int
         """
         assert self.action_space.contains(mcs), f"{mcs} ({type(mcs)}) invalid"
@@ -307,6 +316,7 @@ class AdAmcPacketV0(Env):
                "pkt_succ": self._current_success,
                "pkt_retx": self._current_retx,
                "pkt_delay": self._current_pkt_delay,
+               "pkt_size": self._packet_size,
                "mcs": self._current_mcs}
 
         # Update time for next packet transmission (back to back)
@@ -394,9 +404,26 @@ class AdAmcPacketV0(Env):
         Returns
         -------
         info : dict
+            "next_pkt_size" : int
+                The size of the next packet to be sent [b]
+            "next_pkt_time" : float
+                The time when the next packet will start to be transmitted [s]
+            "next_snr" : float
+                The SNR that will be experienced by the next packet [dB]
         """
-        info = {"pkt_size": self._packet_size,
-                "current_time": self._current_time}
+        if self._current_time <= self._scenario_duration:
+            next_pkt_size = self._packet_size
+            next_pkt_time = self._current_time
+            next_snr = self._get_snr()
+
+        else:
+            next_pkt_size = None
+            next_pkt_time = None
+            next_snr = None
+
+        info = {"next_pkt_size": next_pkt_size,
+                "next_pkt_time": next_pkt_time,
+                "next_snr": next_snr}
         return info
 
 

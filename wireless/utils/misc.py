@@ -133,6 +133,7 @@ def generate_policy(q_table):
     value = np.amax(q_table, axis=1)
     return policy, value
 
+
 def get_timestep(time, timestep):
     """
     Get the timestep index given a time and a timestep duration.
@@ -160,6 +161,7 @@ def epsilon_greedy(q_values, epsilon):
 
 def vdbe_function(td_error_abs, sigma):
     return (1 - np.exp(-td_error_abs / sigma)) / (1 + np.exp(-td_error_abs / sigma))
+
 
 def get_packet_duration(packet_size, mcs):
     """
@@ -195,3 +197,42 @@ def predict_snr(t, snr, t_next, kind="previous"):
                  fill_value="extrapolate")
     return f(t_next)
 
+
+def get_windowed_throughput(t, bits, window):
+    """
+    Compute the throughput over contiguous non-overlapping time windows.
+
+    Parameters
+    ----------
+    t : list of float
+        Packet arrival time [s]
+    bits : list of int
+        Packet size [b]
+    window : float
+        Duration of the time window [s]
+
+    Returns
+    -------
+    t_window : list of float
+        The initial time of each window [s]
+    thr_window : list of float
+        The average throughput in each window [Mbps]
+    """
+    t = np.array(t)
+    bits = np.array(bits)
+
+    n = math.ceil((t[-1] - t[0]) / window)
+    t0 = t[0]
+
+    t_window = np.full((n,), np.nan)
+    thr_window = np.full((n,), np.nan)
+    for i in range(n):
+        t_min = t0 + i * window
+        t_max = t0 + min(t[-1], (i + 1) * window)
+        dt = t_max - t_min
+        mask = np.bitwise_and(t_min <= t, t < t_max)
+
+        t_window[i] = t_min
+        thr_window[i] = np.sum(bits[mask]) / dt / 1e6
+
+    return t_window, thr_window

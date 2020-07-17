@@ -35,6 +35,8 @@ def main(env, agent):
 
     rx_pkts_retx = []
     rx_pkts_delay = []
+    rx_time = []
+    rx_pkt_size = []
 
     time = []
     mcs_t = []
@@ -53,18 +55,20 @@ def main(env, agent):
         if state["pkt_retx"] == 0:
             # If retx == 0: new packet, irrespective of its success
             tot_sent_pkts += 1
-            tot_mb_generated += info["pkt_size"] / 1e6
+            tot_mb_generated += state["pkt_size"] / 1e6
 
         tot_pkts += 1
 
         if state["pkt_succ"] == 1:
             tot_rx_pkts += 1
-            tot_mb_rx += info["pkt_size"] / 1e6
+            tot_mb_rx += state["pkt_size"] / 1e6
             rx_pkts_retx.append(state["pkt_retx"])
             rx_pkts_delay.append(state["pkt_delay"])
+            rx_time.append(state["time"] + state["pkt_delay"])
+            rx_pkt_size.append(state["pkt_size"])
 
         reward_t.append(reward)
-        time.append(info["current_time"])
+        time.append(state["time"])
         mcs_t.append(state["mcs"])
         retx_t.append(state["pkt_retx"])
         delay_t.append(state["pkt_delay"])
@@ -126,6 +130,16 @@ def main(env, agent):
     plt.grid()
     plt.show()
 
+    t_window, thr_window = misc.get_windowed_throughput(rx_time, rx_pkt_size, 100e-3)
+    plt.figure()
+    plt.plot(t_window, thr_window, label=agent_type)
+    plt.title(SCENARIOS_LIST[0])
+    plt.ylabel("Average Throughput [Mbps]")
+    plt.xlabel("Time [s]")
+    plt.legend(loc="lower left")
+    plt.grid()
+    plt.show()
+
     return
 
 
@@ -136,8 +150,8 @@ if __name__ == '__main__':
                            obs_duration=OBS_DURATION, net_timestep=NET_TIMESTEP, harq_retx=HARQ_RETX,
                            reward_type=REWARD_TYPE)
 
-    main(environment, rate_manager_agents.MinstrelAgent(environment.action_space, environment.harq_retx))
-
+    main(environment, rate_manager_agents.OptimalMaxThroughputAgent(action_space=environment.action_space,
+                                                                    error_model=environment.error_model))
     main(environment, rate_manager_agents.PredictiveTargetBerAgent(action_space=environment.action_space,
                                                                    error_model=environment.error_model,
                                                                    history_length=HISTORY_LENGTH,
@@ -145,12 +159,14 @@ if __name__ == '__main__':
                                                                    misc.predict_snr(t, snr, t_next,
                                                                                     kind="previous"),
                                                                    target_ber=1e-6))
-    main(environment, rate_manager_agents.ArfAgent(environment.action_space))
-    main(environment, rate_manager_agents.AarfAgent(environment.action_space))
-    main(environment, rate_manager_agents.OnoeAgent(environment.action_space,
+    main(environment, rate_manager_agents.ArfAgent(action_space=environment.action_space))
+    main(environment, rate_manager_agents.AarfAgent(action_space=environment.action_space))
+    main(environment, rate_manager_agents.OnoeAgent(action_space=environment.action_space,
                                                     window=100e-3))
     main(environment, rate_manager_agents.RraaAgent(action_space=environment.action_space,
                                                     target_pkt_size=environment.packet_size))
+    main(environment, rate_manager_agents.MinstrelAgent(action_space=environment.action_space,
+                                                        harq_retx=environment.harq_retx))
     main(environment, rate_manager_agents.HrcAgent(action_space=environment.action_space,
                                                    error_model=environment.error_model,
                                                    target_pkt_size=environment.packet_size))

@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sacred import Experiment
 from wireless.utils.misc import get_mcs_data_rate
-from wireless.agents.rate_manager_agents import OptimalAgent
+from wireless.agents.rate_manager_agents import OptimalMaxThroughputAgent
 from neptunecontrib.monitoring.sacred import NeptuneObserver
 
 # Load agent parameters
@@ -40,7 +40,7 @@ def main(campaign, scenario_list, snr_history, obs_duration, net_timestep, _run)
 
     env = gym.make("AdLinkAdaptation-v0", campaign=campaign, scenarios_list=scenario_list, obs_duration=obs_duration,
                    snr_history=snr_history, net_timestep=net_timestep)
-    agent = OptimalAgent(env.action_space, env.error_model, env.network_timestep, env.amsdu_size)
+    agent = OptimalMaxThroughputAgent(env.action_space, env.error_model, env.network_timestep, env.amsdu_size)
     log_timestep = _run.config["sacred"]["log_timestep"]  # timestep for logging in Neptune
     reward_t = []
     tot_bits_t = []
